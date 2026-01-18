@@ -1,57 +1,145 @@
 import 'package:flutter/material.dart';
 import 'package:timeago/timeago.dart' as timeago;
-import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../models/post_model.dart';
-import '../services/auth_service.dart';
-import '../services/firestore_service.dart';
-import 'package:fluttertoast/fluttertoast.dart';
 
-class PostCard extends StatefulWidget {
+class PostCard extends StatelessWidget {
   final PostModel post;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
-  const PostCard({super.key, required this.post, required this.onTap});
-
-  @override
-  State<PostCard> createState() => _PostCardState();
-}
-
-class _PostCardState extends State<PostCard> {
-  bool _isBookmarked = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkBookmark();
-  }
-
-  Future<void> _checkBookmark() async {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final userId = authService.currentUser?.uid;
-    if (userId != null) {
-      final isBookmarked = await FirestoreService().isBookmarked(widget.post.id, userId);
-      setState(() => _isBookmarked = isBookmarked);
-    }
-  }
+  const PostCard({
+    super.key,
+    required this.post,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 16),
+      color: AppTheme.darkSurface,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: AppTheme.darkDivider),
+      ),
       child: InkWell(
-        onTap: widget.onTap,
-        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHeader(),
-              const SizedBox(height: 16),
-              _buildContent(),
-              const SizedBox(height: 16),
-              _buildFooter(),
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 16,
+                    backgroundColor: AppTheme.darkPrimary,
+                    backgroundImage: post.authorPhotoURL != null
+                        ? NetworkImage(post.authorPhotoURL!)
+                        : null,
+                    child: post.authorPhotoURL == null
+                        ? Text(
+                            post.authorName[0].toUpperCase(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                            ),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          post.authorName,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleSmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.darkTextPrimary,
+                              ),
+                        ),
+                        Text(
+                          timeago.format(post.createdAt),
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(color: AppTheme.darkTextSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.darkPrimary.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: AppTheme.darkPrimary.withOpacity(0.3),
+                      ),
+                    ),
+                    child: Text(
+                      post.category,
+                      style: TextStyle(
+                        color: AppTheme.darkPrimary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                post.title,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.darkTextPrimary,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: post.tags.take(5).map((tag) {
+                  return Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.darkSurfaceVariant,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      '#$tag',
+                      style: TextStyle(
+                        color: AppTheme.darkTextSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  _buildStat(
+                      Icons.arrow_upward, post.upvotes, AppTheme.successColor),
+                  const SizedBox(width: 16),
+                  _buildStat(
+                      Icons.arrow_downward, post.downvotes, AppTheme.errorColor),
+                  const SizedBox(width: 16),
+                  _buildStat(Icons.comment_outlined, post.commentCount,
+                      AppTheme.darkTextSecondary),
+                  const SizedBox(width: 16),
+                  _buildStat(Icons.visibility_outlined, post.views,
+                      AppTheme.darkTextSecondary),
+                ],
+              ),
             ],
           ),
         ),
@@ -59,135 +147,20 @@ class _PostCardState extends State<PostCard> {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildStat(IconData icon, int count, Color color) {
     return Row(
       children: [
-        CircleAvatar(
-          backgroundImage: widget.post.authorPhotoURL != null
-              ? NetworkImage(widget.post.authorPhotoURL!)
-              : null,
-          child: widget.post.authorPhotoURL == null
-              ? Text(widget.post.authorName[0].toUpperCase())
-              : null,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.post.authorName,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-              Text(
-                timeago.format(widget.post.createdAt),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 4),
+        Text(
+          '$count',
+          style: TextStyle(
+            color: color,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
           ),
         ),
-        Chip(
-          label: Text(widget.post.category),
-          backgroundColor: AppTheme.primaryColor.withAlpha(26),
-          labelStyle: const TextStyle(fontSize: 12),
-        ),
       ],
     );
-  }
-
-  Widget _buildContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          widget.post.title,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          _stripHtmlTags(widget.post.content),
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppTheme.textSecondary,
-              ),
-        ),
-        if (widget.post.tags.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            children: widget.post.tags.take(3).map((tag) {
-              return Chip(
-                label: Text('#$tag'),
-                visualDensity: VisualDensity.compact,
-                backgroundColor: AppTheme.backgroundColor,
-                labelStyle: const TextStyle(fontSize: 12),
-              );
-            }).toList(),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildFooter() {
-    return Row(
-      children: [
-        _buildVoteButton(true, widget.post.upvotes),
-        const SizedBox(width: 16),
-        _buildVoteButton(false, widget.post.downvotes),
-        const SizedBox(width: 24),
-        Icon(Icons.comment_outlined, size: 20, color: AppTheme.textSecondary),
-        const SizedBox(width: 4),
-        Text('${widget.post.commentCount}', style: Theme.of(context).textTheme.bodyMedium),
-        const SizedBox(width: 24),
-        Icon(Icons.visibility_outlined, size: 20, color: AppTheme.textSecondary),
-        const SizedBox(width: 4),
-        Text('${widget.post.viewCount}', style: Theme.of(context).textTheme.bodyMedium),
-        const Spacer(),
-        IconButton(
-          icon: Icon(_isBookmarked ? Icons.bookmark : Icons.bookmark_border),
-          color: _isBookmarked ? AppTheme.primaryColor : null,
-          onPressed: _toggleBookmark,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildVoteButton(bool isUpvote, int count) {
-    return Row(
-      children: [
-        Icon(
-          isUpvote ? Icons.arrow_upward : Icons.arrow_downward,
-          size: 20,
-          color: AppTheme.textSecondary,
-        ),
-        const SizedBox(width: 4),
-        Text('$count', style: Theme.of(context).textTheme.bodyMedium),
-      ],
-    );
-  }
-
-  Future<void> _toggleBookmark() async {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final userId = authService.currentUser?.uid;
-    
-    if (userId == null) return;
-
-    await FirestoreService().toggleBookmark(widget.post.id, userId);
-    setState(() => _isBookmarked = !_isBookmarked);
-    
-    Fluttertoast.showToast(
-      msg: _isBookmarked ? 'Post bookmarked' : 'Bookmark removed',
-      backgroundColor: AppTheme.successColor,
-    );
-  }
-
-  String _stripHtmlTags(String html) {
-    return html.replaceAll(RegExp(r'<[^>]*>'), '').trim();
   }
 }

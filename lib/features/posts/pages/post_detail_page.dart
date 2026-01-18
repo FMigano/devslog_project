@@ -2,34 +2,49 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:flutter_widget_from_html/flutter_widget_from_html.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/models/post_model.dart';
 import '../../../shared/models/comment_model.dart';
 import '../../../shared/services/auth_service.dart';
 import '../../../shared/services/firestore_service.dart';
-import 'package:fluttertoast/fluttertoast.dart';
-import '../../../shared/widgets/share_button.dart';
-import '../../../shared/services/notification_service.dart';
+import '../../../shared/widgets/loading_widget.dart';
 
 class PostDetailPage extends StatefulWidget {
-  final PostModel post;
+  final String postId;
 
-  const PostDetailPage({super.key, required this.post});
+  const PostDetailPage({super.key, required this.postId});
 
   @override
   State<PostDetailPage> createState() => _PostDetailPageState();
 }
 
 class _PostDetailPageState extends State<PostDetailPage> {
-  final FirestoreService _firestoreService = FirestoreService();
   final TextEditingController _commentController = TextEditingController();
+  bool _isCommenting = false;
   bool _isBookmarked = false;
+  bool _isVoting = false;
 
   @override
   void initState() {
     super.initState();
-    _incrementView();
     _checkBookmark();
+    _incrementViewCount();
+  }
+
+  Future<void> _checkBookmark() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final userId = authService.currentUser?.uid;
+    if (userId != null) {
+      final isBookmarked = await FirestoreService().isBookmarked(widget.postId, userId);
+      if (mounted) {
+        setState(() => _isBookmarked = isBookmarked);
+      }
+    }
+  }
+
+  Future<void> _incrementViewCount() async {
+    await FirestoreService().incrementPostView(widget.postId);
   }
 
   @override
@@ -38,254 +53,245 @@ class _PostDetailPageState extends State<PostDetailPage> {
     super.dispose();
   }
 
-  Future<void> _incrementView() async {
-    await _firestoreService.incrementPostView(widget.post.id);
-  }
-
-  Future<void> _checkBookmark() async {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final userId = authService.currentUser?.uid;
-    if (userId != null) {
-      final isBookmarked = await _firestoreService.isBookmarked(widget.post.id, userId);
-      setState(() => _isBookmarked = isBookmarked);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppTheme.darkBackground,
       appBar: AppBar(
-        title: const Text('Post Details'),
+        backgroundColor: AppTheme.darkSurface,
+        title: Text('Post Details', style: TextStyle(color: AppTheme.darkTextPrimary)),
+        iconTheme: IconThemeData(color: AppTheme.darkTextPrimary),
         actions: [
           IconButton(
-            icon: Icon(_isBookmarked ? Icons.bookmark : Icons.bookmark_border),
-            onPressed: _toggleBookmark,
-          ),
-          ShareButton(
-            title: widget.post.title,
-            text: widget.post.content,
-            url: 'https://devslog.app/post/${widget.post.id}',
-          ),
-          PopupMenuButton(
-            itemBuilder: (context) => [
-              const PopupMenuItem(child: ListTile(leading: Icon(Icons.flag), title: Text('Report'))),
-            ],
+            icon: Icon(Icons.share, color: AppTheme.darkTextSecondary),
+            onPressed: () {},
           ),
         ],
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 900),
-          child: ListView(
-            padding: const EdgeInsets.all(24),
-            children: [
-              _buildPostHeader(),
-              const SizedBox(height: 24),
-              _buildPostContent(),
-              const SizedBox(height: 24),
-              _buildVotingSection(),
-              const Divider(height: 48),
-              _buildCommentsSection(),
-            ],
-          ),
-        ),
+      body: StreamBuilder<PostModel?>(
+        stream: FirestoreService().getPostStream(widget.postId),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const LoadingWidget();
+          }
+
+          if (snapshot.hasError) {
+            return Center(
+              child: Text(
+                'Error: ${snapshot.error}',
+                style: TextStyle(color: AppTheme.errorColor),
+              ),
+            );
+          }
+
+          if (!snapshot.hasData || snapshot.data == null) {
+            return Center(
+              child: Text(
+                'Post not found',
+                style: TextStyle(color: AppTheme.darkTextSecondary),
+              ),
+            );
+          }
+
+          final post = snapshot.data!;
+          return SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildPostContent(post),
+                Divider(color: AppTheme.darkDivider, height: 1),
+                _buildCommentsSection(),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
 
-  Widget _buildPostHeader() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Chip(
-          label: Text(widget.post.category),
-          backgroundColor: AppTheme.primaryColor.withAlpha(26),
-        ),
-        const SizedBox(height: 16),
-        Text(widget.post.title, style: Theme.of(context).textTheme.displaySmall),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            CircleAvatar(
-              backgroundImage: widget.post.authorPhotoURL != null
-                  ? NetworkImage(widget.post.authorPhotoURL!)
-                  : null,
-              child: widget.post.authorPhotoURL == null
-                  ? Text(widget.post.authorName[0].toUpperCase())
-                  : null,
+  Widget _buildPostContent(PostModel post) {
+    final authService = Provider.of<AuthService>(context);
+    final userId = authService.currentUser?.uid;
+
+    return Container(
+      color: AppTheme.darkSurface,
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildPostHeader(post),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppTheme.darkPrimary.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppTheme.darkPrimary.withOpacity(0.3)),
             ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(widget.post.authorName, style: Theme.of(context).textTheme.titleSmall),
-                Text(
-                  timeago.format(widget.post.createdAt),
-                  style: Theme.of(context).textTheme.bodySmall,
+            child: Text(
+              post.category,
+              style: TextStyle(
+                color: AppTheme.darkPrimary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            post.title,
+            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.darkTextPrimary,
                 ),
-              ],
-            ),
-          ],
-        ),
-        if (widget.post.tags.isNotEmpty) ...[
+          ),
           const SizedBox(height: 16),
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: widget.post.tags.map((tag) {
-              return Chip(
-                label: Text('#$tag'),
-                backgroundColor: AppTheme.backgroundColor,
+            children: post.tags.map((tag) {
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppTheme.darkSurfaceVariant,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  '#$tag',
+                  style: TextStyle(
+                    color: AppTheme.darkTextSecondary,
+                    fontSize: 12,
+                  ),
+                ),
               );
             }).toList(),
           ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppTheme.darkSurfaceVariant,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: HtmlWidget(
+              post.content,
+              textStyle: TextStyle(
+                color: AppTheme.darkTextPrimary,
+                fontSize: 16,
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          StreamBuilder<bool?>(
+            stream: FirestoreService().getUserVoteStream(widget.postId, userId ?? ''),
+            builder: (context, voteSnapshot) {
+              return _buildPostActions(post, voteSnapshot.data);
+            },
+          ),
         ],
-      ],
-    );
-  }
-
-  Widget _buildPostContent() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: HtmlWidget(widget.post.content),
       ),
     );
   }
 
-  Widget _buildVotingSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _buildVoteButton(true, widget.post.upvotes),
-            _buildVoteButton(false, widget.post.downvotes),
-            Row(
-              children: [
-                const Icon(Icons.comment_outlined),
-                const SizedBox(width: 8),
-                Text('${widget.post.commentCount} comments'),
-              ],
-            ),
-            Row(
-              children: [
-                const Icon(Icons.visibility_outlined),
-                const SizedBox(width: 8),
-                Text('${widget.post.viewCount} views'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildVoteButton(bool isUpvote, int count) {
-    return ElevatedButton.icon(
-      onPressed: () => _votePost(isUpvote),
-      icon: Icon(isUpvote ? Icons.arrow_upward : Icons.arrow_downward),
-      label: Text('$count'),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: isUpvote ? AppTheme.successColor : AppTheme.errorColor,
-      ),
-    );
-  }
-
-  Widget _buildCommentsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildPostHeader(PostModel post) {
+    return Row(
       children: [
-        Text('Comments', style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 16),
-        _buildCommentInput(),
-        const SizedBox(height: 24),
-        StreamBuilder<List<CommentModel>>(
-          stream: _firestoreService.getComments(widget.post.id),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            final comments = snapshot.data ?? [];
-
-            if (comments.isEmpty) {
-              return const Center(child: Text('No comments yet. Be the first to comment!'));
-            }
-
-            return Column(
-              children: comments.map((comment) => _buildCommentCard(comment)).toList(),
-            );
-          },
+        CircleAvatar(
+          radius: 20,
+          backgroundColor: AppTheme.darkPrimary,
+          backgroundImage: post.authorPhotoURL != null
+              ? NetworkImage(post.authorPhotoURL!)
+              : null,
+          child: post.authorPhotoURL == null
+              ? Text(
+                  post.authorName[0].toUpperCase(),
+                  style: const TextStyle(color: Colors.white),
+                )
+              : null,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                post.authorName,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.darkTextPrimary,
+                ),
+              ),
+              Text(
+                timeago.format(post.createdAt),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppTheme.darkTextSecondary,
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildCommentInput() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _commentController,
-              decoration: const InputDecoration(
-                hintText: 'Write a comment...',
-                border: InputBorder.none,
-              ),
-              maxLines: 3,
-            ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton(
-                onPressed: _addComment,
-                child: const Text('Post Comment'),
-              ),
-            ),
-          ],
+  Widget _buildPostActions(PostModel post, bool? userVote) {
+    return Row(
+      children: [
+        _buildVoteButton(true, post.upvotes, userVote),
+        const SizedBox(width: 16),
+        _buildVoteButton(false, post.downvotes, userVote),
+        const SizedBox(width: 24),
+        Icon(Icons.visibility_outlined, size: 20, color: AppTheme.darkTextSecondary),
+        const SizedBox(width: 4),
+        Text('${post.viewCount}', style: TextStyle(color: AppTheme.darkTextSecondary)),
+        const Spacer(),
+        IconButton(
+          icon: Icon(
+            _isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+            color: _isBookmarked ? AppTheme.darkPrimary : AppTheme.darkTextSecondary,
+          ),
+          onPressed: _toggleBookmark,
         ),
-      ),
+      ],
     );
   }
 
-  Widget _buildCommentCard(CommentModel comment) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildVoteButton(bool isUpvote, int count, bool? userVote) {
+    final isVoted = userVote != null && userVote == isUpvote;
+    final color = isUpvote 
+        ? (isVoted ? AppTheme.successColor : AppTheme.darkTextSecondary)
+        : (isVoted ? AppTheme.errorColor : AppTheme.darkTextSecondary);
+
+    return InkWell(
+      onTap: _isVoting ? null : () => _votePost(isUpvote),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isVoted 
+              ? color.withOpacity(0.2)
+              : AppTheme.darkSurfaceVariant,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isVoted ? color : AppTheme.darkDivider,
+          ),
+        ),
+        child: Row(
           children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 16,
-                  backgroundImage: comment.authorPhotoURL != null
-                      ? NetworkImage(comment.authorPhotoURL!)
-                      : null,
-                  child: comment.authorPhotoURL == null
-                      ? Text(comment.authorName[0].toUpperCase())
-                      : null,
-                ),
-                const SizedBox(width: 8),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(comment.authorName, style: Theme.of(context).textTheme.titleSmall),
-                    Text(
-                      timeago.format(comment.createdAt),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ],
+            Icon(
+              isUpvote ? Icons.arrow_upward : Icons.arrow_downward,
+              size: 16,
+              color: color,
             ),
-            const SizedBox(height: 12),
-            Text(comment.content),
+            const SizedBox(width: 4),
+            Text(
+              '$count',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
           ],
         ),
       ),
@@ -293,69 +299,306 @@ class _PostDetailPageState extends State<PostDetailPage> {
   }
 
   Future<void> _votePost(bool isUpvote) async {
+    if (_isVoting) return;
+
     final authService = Provider.of<AuthService>(context, listen: false);
     final userId = authService.currentUser?.uid;
     
-    if (userId == null) return;
+    if (userId == null) {
+      Fluttertoast.showToast(
+        msg: 'Please sign in to vote',
+        backgroundColor: AppTheme.warningColor,
+      );
+      return;
+    }
 
-    await _firestoreService.votePost(widget.post.id, userId, isUpvote);
-    
-    Fluttertoast.showToast(
-      msg: isUpvote ? 'Upvoted!' : 'Downvoted!',
-      backgroundColor: AppTheme.successColor,
-    );
+    setState(() => _isVoting = true);
+
+    try {
+      await FirestoreService().votePost(widget.postId, userId, isUpvote);
+      
+      if (mounted) {
+        Fluttertoast.showToast(
+          msg: 'Vote recorded',
+          backgroundColor: AppTheme.successColor,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Fluttertoast.showToast(
+          msg: 'Failed to vote: $e',
+          backgroundColor: AppTheme.errorColor,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isVoting = false);
+      }
+    }
   }
 
   Future<void> _toggleBookmark() async {
     final authService = Provider.of<AuthService>(context, listen: false);
     final userId = authService.currentUser?.uid;
     
-    if (userId == null) return;
+    if (userId == null) {
+      Fluttertoast.showToast(
+        msg: 'Please sign in to bookmark',
+        backgroundColor: AppTheme.warningColor,
+      );
+      return;
+    }
 
-    await _firestoreService.toggleBookmark(widget.post.id, userId);
-    setState(() => _isBookmarked = !_isBookmarked);
-    
-    Fluttertoast.showToast(
-      msg: _isBookmarked ? 'Bookmarked!' : 'Bookmark removed',
-      backgroundColor: AppTheme.successColor,
+    try {
+      await FirestoreService().toggleBookmark(widget.postId, userId);
+      setState(() => _isBookmarked = !_isBookmarked);
+      
+      Fluttertoast.showToast(
+        msg: _isBookmarked ? 'Post bookmarked' : 'Bookmark removed',
+        backgroundColor: AppTheme.successColor,
+      );
+    } catch (e) {
+      Fluttertoast.showToast(
+        msg: 'Failed to bookmark: $e',
+        backgroundColor: AppTheme.errorColor,
+      );
+    }
+  }
+
+  Widget _buildCommentsSection() {
+    final authService = Provider.of<AuthService>(context);
+    final currentUser = authService.currentUser;
+
+    return Container(
+      color: AppTheme.darkBackground,
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Comments',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.darkTextPrimary,
+                ),
+          ),
+          const SizedBox(height: 16),
+          if (currentUser != null) _buildCommentInput(currentUser),
+          const SizedBox(height: 20),
+          StreamBuilder<List<CommentModel>>(
+            stream: FirestoreService().getComments(widget.postId),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Text(
+                      'No comments yet. Be the first to comment!',
+                      style: TextStyle(color: AppTheme.darkTextSecondary),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                );
+              }
+
+              final comments = snapshot.data!;
+              return ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: comments.length,
+                itemBuilder: (context, index) {
+                  return _buildCommentCard(comments[index], currentUser);
+                },
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 
-  Future<void> _addComment() async {
-    if (_commentController.text.trim().isEmpty) return;
-
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final user = await authService.getCurrentUserData();
-    
-    if (user == null) return;
-
-    final comment = CommentModel(
-      id: '',
-      postId: widget.post.id,
-      authorId: user.uid,
-      authorName: user.displayName,
-      authorPhotoURL: user.photoURL,
-      content: _commentController.text.trim(),
-      createdAt: DateTime.now(),
+  Widget _buildCommentInput(dynamic currentUser) {
+    return Card(
+      color: AppTheme.darkSurface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: AppTheme.darkDivider),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _commentController,
+                style: TextStyle(color: AppTheme.darkTextPrimary),
+                decoration: InputDecoration(
+                  hintText: 'Add a comment...',
+                  hintStyle: TextStyle(color: AppTheme.darkTextSecondary),
+                  border: InputBorder.none,
+                ),
+                maxLines: null,
+              ),
+            ),
+            IconButton(
+              icon: Icon(
+                Icons.send,
+                color: _commentController.text.isEmpty
+                    ? AppTheme.darkTextSecondary
+                    : AppTheme.darkPrimary,
+              ),
+              onPressed: _isCommenting ? null : _submitComment,
+            ),
+          ],
+        ),
+      ),
     );
+  }
 
-    await _firestoreService.addComment(comment);
-    _commentController.clear();
-    
-    // Create notification for post author
-    if (widget.post.authorId != user.uid) {
-      await NotificationService().createNotification(
-        userId: widget.post.authorId,
-        title: 'New Comment',
-        message: '${user.displayName} commented on your post',
-        type: 'comment',
-        postId: widget.post.id,
+  Widget _buildCommentCard(CommentModel comment, dynamic currentUser) {
+    final isAuthor = currentUser?.uid == comment.authorId;
+
+    return Card(
+      color: AppTheme.darkSurface,
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: AppTheme.darkDivider),
+      ),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: AppTheme.darkPrimary,
+          backgroundImage: comment.authorPhotoURL != null
+              ? NetworkImage(comment.authorPhotoURL!)
+              : null,
+          child: comment.authorPhotoURL == null
+              ? Text(
+                  comment.authorName[0].toUpperCase(),
+                  style: const TextStyle(color: Colors.white),
+                )
+              : null,
+        ),
+        title: Row(
+          children: [
+            Text(
+              comment.authorName,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: AppTheme.darkTextPrimary,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              timeago.format(comment.createdAt),
+              style: TextStyle(
+                fontSize: 12,
+                color: AppTheme.darkTextSecondary,
+              ),
+            ),
+          ],
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            comment.content,
+            style: TextStyle(color: AppTheme.darkTextPrimary),
+          ),
+        ),
+        trailing: isAuthor
+            ? IconButton(
+                icon: Icon(Icons.delete_outline, color: AppTheme.errorColor),
+                onPressed: () => _deleteComment(comment.id, comment.authorId),
+              )
+            : null,
+      ),
+    );
+  }
+
+  Future<void> _submitComment() async {
+    if (_commentController.text.trim().isEmpty) {
+      Fluttertoast.showToast(
+        msg: 'Please enter a comment',
+        backgroundColor: AppTheme.warningColor,
       );
+      return;
     }
-    
-    Fluttertoast.showToast(
-      msg: 'Comment posted!',
-      backgroundColor: AppTheme.successColor,
-    );
+
+    setState(() => _isCommenting = true);
+    print('=== ADD COMMENT STARTED ===');
+
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final user = await authService.getCurrentUserData();
+
+      if (user == null) {
+        throw Exception('User not found');
+      }
+
+      print('Adding comment by: ${user.displayName}');
+      print('Comment text: ${_commentController.text.trim()}');
+      print('Post ID: ${widget.postId}');
+
+      final comment = CommentModel(
+        id: '',
+        postId: widget.postId,
+        authorId: user.uid,
+        authorName: user.displayName,
+        authorPhotoURL: user.photoURL,
+        content: _commentController.text.trim(),
+        createdAt: DateTime.now(),
+      );
+
+      print('Saving comment to Firestore...');
+      await FirestoreService().addComment(comment);
+      print('Comment saved successfully');
+
+      _commentController.clear();
+      
+      if (mounted) {
+        Fluttertoast.showToast(
+          msg: 'Comment added',
+          backgroundColor: AppTheme.successColor,
+        );
+      }
+    } catch (e, stackTrace) {
+      print('ERROR adding comment: $e');
+      print('STACK: $stackTrace');
+      
+      if (mounted) {
+        Fluttertoast.showToast(
+          msg: 'Failed to add comment: $e',
+          backgroundColor: AppTheme.errorColor,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isCommenting = false);
+      }
+      print('=== ADD COMMENT ENDED ===');
+    }
+  }
+
+  Future<void> _deleteComment(String commentId, String authorId) async {
+    try {
+      await FirestoreService().deleteComment(commentId, widget.postId, authorId);
+      
+      if (mounted) {
+        Fluttertoast.showToast(
+          msg: 'Comment deleted',
+          backgroundColor: AppTheme.successColor,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Fluttertoast.showToast(
+          msg: 'Failed to delete comment: $e',
+          backgroundColor: AppTheme.errorColor,
+        );
+      }
+    }
   }
 }

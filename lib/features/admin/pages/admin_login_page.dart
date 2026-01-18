@@ -4,6 +4,7 @@ import 'package:email_validator/email_validator.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/services/auth_service.dart';
+import '../../landing/pages/landing_page.dart';
 import 'admin_dashboard_page.dart';
 
 class AdminLoginPage extends StatefulWidget {
@@ -51,6 +52,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
           Fluttertoast.showToast(
             msg: 'Access denied. Admin privileges required.',
             backgroundColor: AppTheme.errorColor,
+            toastLength: Toast.LENGTH_LONG,
           );
         }
         return;
@@ -68,10 +70,13 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
         );
       }
     } catch (e) {
-      Fluttertoast.showToast(
-        msg: e.toString().replaceAll('Exception: ', ''),
-        backgroundColor: AppTheme.errorColor,
-      );
+      if (mounted) {
+        Fluttertoast.showToast(
+          msg: e.toString().replaceAll('Exception: ', ''),
+          backgroundColor: AppTheme.errorColor,
+          toastLength: Toast.LENGTH_LONG,
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -90,7 +95,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                 end: Alignment.bottomRight,
                 colors: [
                   AppTheme.warningColor.withAlpha(51),
-                  AppTheme.backgroundColor,
+                  AppTheme.darkBackground,
                 ],
               ),
             ),
@@ -109,84 +114,80 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                         alignment: Alignment.topLeft,
                         child: IconButton(
                           icon: const Icon(Icons.arrow_back),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      // Admin icon
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: AppTheme.warningColor,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Icon(
-                          Icons.admin_panel_settings,
-                          size: 48,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        'Admin Login',
-                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Access the admin dashboard',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: AppTheme.textSecondary,
-                            ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      // Warning banner
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppTheme.warningColor.withAlpha(26),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: AppTheme.warningColor.withAlpha(51),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.shield_outlined,
-                              color: AppTheme.warningColor,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'This area is restricted to administrators only',
-                                style: Theme.of(context).textTheme.bodySmall,
+                          onPressed: () {
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const LandingPage(),
                               ),
-                            ),
-                          ],
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Admin Icon
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: AppTheme.warningColor.withOpacity(0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.admin_panel_settings,
+                          size: 64,
+                          color: AppTheme.warningColor,
                         ),
                       ),
                       const SizedBox(height: 32),
-                      // Login form
+
+                      // Title
+                      Text(
+                        'Admin Access',
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.darkTextPrimary,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Sign in to access the admin dashboard',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: AppTheme.darkTextSecondary,
+                            ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 40),
+
+                      // Login Form
                       Card(
+                        elevation: 8,
+                        color: AppTheme.darkSurface,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          side: BorderSide(color: AppTheme.darkDivider),
+                        ),
                         child: Padding(
-                          padding: const EdgeInsets.all(24),
+                          padding: const EdgeInsets.all(32),
                           child: Form(
                             key: _formKey,
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
+                                // Email Field
                                 TextFormField(
                                   controller: _emailController,
                                   keyboardType: TextInputType.emailAddress,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Admin Email',
-                                    hintText: 'Enter your admin email',
-                                    prefixIcon: Icon(Icons.email_outlined),
+                                  style: TextStyle(color: AppTheme.darkTextPrimary),
+                                  decoration: InputDecoration(
+                                    labelText: 'Email',
+                                    labelStyle: TextStyle(color: AppTheme.darkTextSecondary),
+                                    prefixIcon: Icon(Icons.email, color: AppTheme.warningColor),
+                                    filled: true,
+                                    fillColor: AppTheme.darkSurfaceVariant,
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: BorderSide.none,
+                                    ),
                                   ),
                                   validator: (value) {
                                     if (value == null || value.isEmpty) {
@@ -198,23 +199,33 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                                     return null;
                                   },
                                 ),
-                                const SizedBox(height: 16),
+                                const SizedBox(height: 20),
+
+                                // Password Field
                                 TextFormField(
                                   controller: _passwordController,
                                   obscureText: _obscurePassword,
+                                  style: TextStyle(color: AppTheme.darkTextPrimary),
                                   decoration: InputDecoration(
                                     labelText: 'Password',
-                                    hintText: 'Enter your password',
-                                    prefixIcon: const Icon(Icons.lock_outline),
+                                    labelStyle: TextStyle(color: AppTheme.darkTextSecondary),
+                                    prefixIcon: Icon(Icons.lock, color: AppTheme.warningColor),
                                     suffixIcon: IconButton(
                                       icon: Icon(
-                                        _obscurePassword
-                                            ? Icons.visibility_off
-                                            : Icons.visibility,
+                                        _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                                        color: AppTheme.darkTextSecondary,
                                       ),
                                       onPressed: () {
-                                        setState(() => _obscurePassword = !_obscurePassword);
+                                        setState(() {
+                                          _obscurePassword = !_obscurePassword;
+                                        });
                                       },
+                                    ),
+                                    filled: true,
+                                    fillColor: AppTheme.darkSurfaceVariant,
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: BorderSide.none,
                                     ),
                                   ),
                                   validator: (value) {
@@ -224,28 +235,37 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                                     return null;
                                   },
                                 ),
-                                const SizedBox(height: 24),
+                                const SizedBox(height: 32),
+
+                                // Login Button
                                 SizedBox(
                                   width: double.infinity,
-                                  child: ElevatedButton.icon(
+                                  height: 50,
+                                  child: ElevatedButton(
                                     onPressed: _isLoading ? null : _login,
-                                    icon: _isLoading
-                                        ? const SizedBox(
-                                            height: 20,
-                                            width: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              valueColor: AlwaysStoppedAnimation<Color>(
-                                                Colors.white,
-                                              ),
-                                            ),
-                                          )
-                                        : const Icon(Icons.login),
-                                    label: const Text('Login as Admin'),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: AppTheme.warningColor,
-                                      padding: const EdgeInsets.symmetric(vertical: 16),
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
                                     ),
+                                    child: _isLoading
+                                        ? const SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                            ),
+                                          )
+                                        : const Text(
+                                            'Sign In',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
                                   ),
                                 ),
                               ],
@@ -253,13 +273,17 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                           ),
                         ),
                       ),
+
+                      // Admin Credentials Info
                       const SizedBox(height: 24),
-                      // Default credentials info
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: AppTheme.primaryColor.withAlpha(26),
-                          borderRadius: BorderRadius.circular(8),
+                          color: AppTheme.infoColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppTheme.infoColor.withOpacity(0.3),
+                          ),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -268,7 +292,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                               children: [
                                 Icon(
                                   Icons.info_outline,
-                                  color: AppTheme.primaryColor,
+                                  color: AppTheme.infoColor,
                                   size: 20,
                                 ),
                                 const SizedBox(width: 8),
@@ -276,6 +300,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                                   'Default Admin Credentials',
                                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                                         fontWeight: FontWeight.bold,
+                                        color: AppTheme.infoColor,
                                       ),
                                 ),
                               ],
@@ -285,6 +310,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                               'Email: admin@devslog.com',
                               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                     fontFamily: 'monospace',
+                                    color: AppTheme.darkTextSecondary,
                                   ),
                             ),
                             const SizedBox(height: 4),
@@ -292,6 +318,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                               'Password: @dmin123',
                               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                     fontFamily: 'monospace',
+                                    color: AppTheme.darkTextSecondary,
                                   ),
                             ),
                           ],

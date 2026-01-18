@@ -42,173 +42,247 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: _buildAppBar(),
-      body: Row(
-        children: [
-          if (MediaQuery.of(context).size.width > 900) _buildSidebar(),
-          Expanded(child: _buildMainContent()),
-          if (MediaQuery.of(context).size.width > 1200) _buildRightSidebar(),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const CreatePostPage()),
-          );
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('New Post'),
-      ),
-    );
-  }
+    final authService = Provider.of<AuthService>(context);
+    final user = authService.currentUser;
 
-  PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      title: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryColor,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.code, color: Colors.white, size: 24),
-          ),
-          const SizedBox(width: 12),
-          const Text('DevsLog'),
-        ],
-      ),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.search),
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SearchPage()),
-            );
-          },
-        ),
-        StreamBuilder<List<NotificationModel>>(
-          stream: _currentUser != null
-              ? NotificationService().getNotifications(_currentUser!.uid)
-              : Stream.value([]),
-          builder: (context, snapshot) {
-            final unreadCount = snapshot.data?.where((n) => !n.isRead).length ?? 0;
-            return Stack(
+    if (user == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return FutureBuilder<UserModel?>(
+      future: authService.getCurrentUserData(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            backgroundColor: AppTheme.darkBackground,
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final currentUser = snapshot.data;
+        if (currentUser == null) {
+          return const Scaffold(
+            backgroundColor: AppTheme.darkBackground,
+            body: Center(child: Text('User not found')),
+          );
+        }
+
+        return Scaffold(
+          backgroundColor: AppTheme.darkBackground,
+          appBar: AppBar(
+            backgroundColor: AppTheme.darkSurface,
+            elevation: 1,
+            shadowColor: AppTheme.darkDivider,
+            title: Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.notifications_outlined),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const NotificationsPage()),
-                    );
-                  },
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.darkPrimary,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.code, size: 20, color: Colors.white),
                 ),
-                if (unreadCount > 0)
-                  Positioned(
-                    right: 8,
-                    top: 8,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                        color: AppTheme.errorColor,
-                        shape: BoxShape.circle,
+                const SizedBox(width: 12),
+                Text(
+                  'DevsLog',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.darkTextPrimary,
                       ),
-                      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                      child: Text(
-                        unreadCount > 9 ? '9+' : '$unreadCount',
-                        style: const TextStyle(color: Colors.white, fontSize: 10),
-                        textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.search),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const SearchPage()),
+                  );
+                },
+                color: AppTheme.darkTextSecondary,
+              ),
+              FutureBuilder<int>(
+                future: NotificationService().getUnreadCount(user.uid),
+                builder: (context, snapshot) {
+                  final unreadCount = snapshot.data ?? 0;
+                  return Stack(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.notifications_outlined),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const NotificationsPage(),
+                            ),
+                          );
+                        },
+                        color: AppTheme.darkTextSecondary,
                       ),
+                      if (unreadCount > 0)
+                        Positioned(
+                          right: 8,
+                          top: 8,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: AppTheme.errorColor,
+                              shape: BoxShape.circle,
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 16,
+                              minHeight: 16,
+                            ),
+                            child: Text(
+                              unreadCount > 9 ? '9+' : '$unreadCount',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(width: 8),
+              PopupMenuButton<String>(
+                icon: CircleAvatar(
+                  radius: 16,
+                  backgroundColor: AppTheme.darkPrimary,
+                  backgroundImage: currentUser.photoURL != null
+                      ? NetworkImage(currentUser.photoURL!)
+                      : null,
+                  child: currentUser.photoURL == null
+                      ? Text(
+                          currentUser.displayName[0].toUpperCase(),
+                          style: const TextStyle(color: Colors.white),
+                        )
+                      : null,
+                ),
+                color: AppTheme.darkSurface,
+                onSelected: (value) async {
+                  switch (value) {
+                    case 'profile':
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              const ProfilePage(),
+                        ),
+                      );
+                      break;
+                    case 'settings':
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const SettingsPage(),
+                        ),
+                      );
+                      break;
+                    case 'admin':
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const AdminDashboardPage(),
+                        ),
+                      );
+                      break;
+                    case 'logout':
+                      await authService.signOut();
+                      break;
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'profile',
+                    child: Row(
+                      children: [
+                        Icon(Icons.person, color: AppTheme.darkTextSecondary),
+                        const SizedBox(width: 12),
+                        Text('Profile',
+                            style: TextStyle(color: AppTheme.darkTextPrimary)),
+                      ],
                     ),
                   ),
-              ],
-            );
-          },
-        ),
-        if (_currentUser != null && _currentUser!.isAdmin)
-          IconButton(
-            icon: const Icon(Icons.admin_panel_settings),
-            onPressed: () {
-              Navigator.push(
+                  PopupMenuItem(
+                    value: 'settings',
+                    child: Row(
+                      children: [
+                        Icon(Icons.settings, color: AppTheme.darkTextSecondary),
+                        const SizedBox(width: 12),
+                        Text('Settings',
+                            style: TextStyle(color: AppTheme.darkTextPrimary)),
+                      ],
+                    ),
+                  ),
+                  if (currentUser.isAdmin)
+                    PopupMenuItem(
+                      value: 'admin',
+                      child: Row(
+                        children: [
+                          Icon(Icons.admin_panel_settings,
+                              color: AppTheme.darkTextSecondary),
+                          const SizedBox(width: 12),
+                          Text('Admin Dashboard',
+                              style:
+                                  TextStyle(color: AppTheme.darkTextPrimary)),
+                        ],
+                      ),
+                    ),
+                  const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: 'logout',
+                    child: Row(
+                      children: [
+                        Icon(Icons.logout, color: AppTheme.errorColor),
+                        const SizedBox(width: 12),
+                        Text('Logout',
+                            style: TextStyle(color: AppTheme.errorColor)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 8),
+            ],
+          ),
+          body: Row(
+            children: [
+              _buildSidebar(),
+              Expanded(
+                child: Container(
+                  color: AppTheme.darkBackground,
+                  child: _buildMainContent(),
+                ),
+              ),
+              _buildRightSidebar(),
+            ],
+          ),
+          floatingActionButton: FloatingActionButton.extended(
+            onPressed: () async {
+              final result = await Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const AdminDashboardPage()),
+                MaterialPageRoute(
+                  builder: (context) => const CreatePostPage(),
+                ),
               );
+              if (result == true) {
+                setState(() {});
+              }
             },
+            icon: const Icon(Icons.add),
+            label: const Text('New Post'),
+            backgroundColor: AppTheme.darkPrimary,
           ),
-        const SizedBox(width: 8),
-        PopupMenuButton<String>(
-          icon: CircleAvatar(
-            backgroundImage: _currentUser?.photoURL != null
-                ? NetworkImage(_currentUser!.photoURL!)
-                : null,
-            child: _currentUser?.photoURL == null
-                ? Text(_currentUser?.displayName[0].toUpperCase() ?? 'U')
-                : null,
-          ),
-          itemBuilder: (context) => <PopupMenuEntry<String>>[
-            PopupMenuItem<String>(
-              value: 'profile',
-              child: const ListTile(
-                leading: Icon(Icons.person),
-                title: Text('Profile'),
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
-            PopupMenuItem<String>(
-              value: 'bookmarks',
-              child: const ListTile(
-                leading: Icon(Icons.bookmark),
-                title: Text('Bookmarks'),
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
-            PopupMenuItem<String>(
-              value: 'settings',
-              child: const ListTile(
-                leading: Icon(Icons.settings),
-                title: Text('Settings'),
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
-            const PopupMenuDivider(),
-            PopupMenuItem<String>(
-              value: 'logout',
-              child: const ListTile(
-                leading: Icon(Icons.logout, color: AppTheme.errorColor),
-                title: Text('Logout', style: TextStyle(color: AppTheme.errorColor)),
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
-          ],
-          onSelected: (value) {
-            switch (value) {
-              case 'profile':
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ProfilePage()),
-                );
-                break;
-              case 'bookmarks':
-                // Handle bookmarks
-                break;
-              case 'settings':
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const SettingsPage()),
-                );
-                break;
-              case 'logout':
-                Provider.of<AuthService>(context, listen: false).signOut();
-                break;
-            }
-          },
-        ),
-        const SizedBox(width: 16),
-      ],
+        );
+      },
     );
   }
 
@@ -216,13 +290,18 @@ class _HomePageState extends State<HomePage> {
     return Container(
       width: 250,
       decoration: BoxDecoration(
-        color: AppTheme.surfaceColor,
-        border: Border(right: BorderSide(color: AppTheme.dividerColor)),
+        color: AppTheme.darkSurface,
+        border: Border(right: BorderSide(color: AppTheme.darkDivider)),
       ),
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('Categories', style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            'Categories',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AppTheme.darkTextPrimary,
+                ),
+          ),
           const SizedBox(height: 16),
           _buildCategoryItem('All', Icons.grid_view),
           ...AppConstants.postCategories.map((category) {
@@ -236,10 +315,18 @@ class _HomePageState extends State<HomePage> {
   Widget _buildCategoryItem(String category, IconData icon) {
     final isSelected = _selectedCategory == category;
     return ListTile(
-      leading: Icon(icon, color: isSelected ? AppTheme.primaryColor : null),
-      title: Text(category),
+      leading: Icon(
+        icon,
+        color: isSelected ? AppTheme.darkPrimary : AppTheme.darkTextSecondary,
+      ),
+      title: Text(
+        category,
+        style: TextStyle(
+          color: isSelected ? AppTheme.darkPrimary : AppTheme.darkTextPrimary,
+        ),
+      ),
       selected: isSelected,
-      selectedTileColor: AppTheme.primaryColor.withAlpha(26),
+      selectedTileColor: AppTheme.darkPrimary.withOpacity(0.2),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       onTap: () {
         setState(() => _selectedCategory = category);
@@ -248,50 +335,73 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildMainContent() {
+    final stream = _selectedCategory == 'All'
+        ? FirestoreService().getPosts()
+        : FirestoreService().getPosts(category: _selectedCategory);
+
     return StreamBuilder<List<PostModel>>(
-      stream: _firestoreService.getPosts(
-        category: _selectedCategory == 'All' ? null : _selectedCategory,
-      ),
+      stream: stream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
         if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
+          return Center(
+            child: Text(
+              'Error: ${snapshot.error}',
+              style: TextStyle(color: AppTheme.errorColor),
+            ),
+          );
         }
 
-        final posts = snapshot.data ?? [];
-
-        if (posts.isEmpty) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.article_outlined, size: 80, color: AppTheme.textSecondary),
+                Icon(
+                  Icons.inbox_outlined,
+                  size: 64,
+                  color: AppTheme.darkTextSecondary.withOpacity(0.5),
+                ),
                 const SizedBox(height: 16),
-                Text('No posts yet', style: Theme.of(context).textTheme.titleLarge),
+                Text(
+                  'No posts yet',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: AppTheme.darkTextSecondary,
+                      ),
+                ),
                 const SizedBox(height: 8),
-                Text('Be the first to share something!', style: Theme.of(context).textTheme.bodyMedium),
+                Text(
+                  'Be the first to create a post!',
+                  style: TextStyle(color: AppTheme.darkTextSecondary),
+                ),
               ],
             ),
           );
         }
 
+        final posts = snapshot.data!;
         return ListView.builder(
           padding: const EdgeInsets.all(16),
           itemCount: posts.length,
           itemBuilder: (context, index) {
-            return PostCard(
-              post: posts[index],
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PostDetailPage(post: posts[index]),
-                  ),
-                );
-              },
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: PostCard(
+                post: posts[index],
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => PostDetailPage(
+                        postId: posts[index].id,
+                      ),
+                    ),
+                  );
+                },
+              ),
             );
           },
         );
@@ -304,21 +414,41 @@ class _HomePageState extends State<HomePage> {
       width: 300,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.surfaceColor,
-        border: Border(left: BorderSide(color: AppTheme.dividerColor)),
+        color: AppTheme.darkSurface,
+        border: Border(left: BorderSide(color: AppTheme.darkDivider)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Trending Tags', style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            'Trending Tags',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.darkTextPrimary,
+                ),
+          ),
           const SizedBox(height: 16),
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: ['Flutter', 'Firebase', 'Dart', 'Web Dev', 'Mobile'].map((tag) {
-              return Chip(
-                label: Text(tag),
-                backgroundColor: AppTheme.primaryColor.withAlpha(26),
+            children: AppConstants.allTags.take(20).map((tag) {
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppTheme.darkSurfaceVariant,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: AppTheme.darkPrimary.withOpacity(0.3),
+                  ),
+                ),
+                child: Text(
+                  '#$tag',
+                  style: TextStyle(
+                    color: AppTheme.darkTextPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               );
             }).toList(),
           ),

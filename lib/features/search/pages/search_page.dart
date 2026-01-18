@@ -109,7 +109,9 @@ class _SearchPageState extends State<SearchPage> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => PostDetailPage(post: _searchResults[index]),
+                            builder: (_) => PostDetailPage(
+                              postId: _searchResults[index].id,
+                            ),
                           ),
                         );
                       },

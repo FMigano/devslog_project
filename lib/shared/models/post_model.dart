@@ -9,15 +9,15 @@ class PostModel {
   final String content;
   final String category;
   final List<String> tags;
+  final DateTime createdAt;
+  final DateTime? updatedAt;
   final int upvotes;
   final int downvotes;
   final int commentCount;
   final int viewCount;
-  final DateTime createdAt;
-  final DateTime? updatedAt;
   final bool isEdited;
   final bool isPinned;
-  final bool isLocked;
+  final int views; // Add this field
 
   PostModel({
     required this.id,
@@ -27,20 +27,20 @@ class PostModel {
     required this.title,
     required this.content,
     required this.category,
-    this.tags = const [],
+    required this.tags,
+    required this.createdAt,
+    this.updatedAt,
     this.upvotes = 0,
     this.downvotes = 0,
     this.commentCount = 0,
     this.viewCount = 0,
-    required this.createdAt,
-    this.updatedAt,
     this.isEdited = false,
     this.isPinned = false,
-    this.isLocked = false,
+    required this.views, // Add to constructor
   });
 
   factory PostModel.fromFirestore(DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    final data = doc.data() as Map<String, dynamic>;
     return PostModel(
       id: doc.id,
       authorId: data['authorId'] ?? '',
@@ -48,17 +48,17 @@ class PostModel {
       authorPhotoURL: data['authorPhotoURL'],
       title: data['title'] ?? '',
       content: data['content'] ?? '',
-      category: data['category'] ?? 'General Discussion',
+      category: data['category'] ?? 'General',
       tags: List<String>.from(data['tags'] ?? []),
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
       upvotes: data['upvotes'] ?? 0,
       downvotes: data['downvotes'] ?? 0,
       commentCount: data['commentCount'] ?? 0,
       viewCount: data['viewCount'] ?? 0,
-      createdAt: (data['createdAt'] as Timestamp).toDate(),
-      updatedAt: data['updatedAt'] != null ? (data['updatedAt'] as Timestamp).toDate() : null,
       isEdited: data['isEdited'] ?? false,
       isPinned: data['isPinned'] ?? false,
-      isLocked: data['isLocked'] ?? false,
+      views: data['views'] ?? 0, // Initialize views
     );
   }
 
@@ -71,17 +71,55 @@ class PostModel {
       'content': content,
       'category': category,
       'tags': tags,
-      'upvotes': upvotes,
-      'downvotes': downvotes,
-      'commentCount': commentCount,
-      'viewCount': viewCount,
-      'createdAt': Timestamp.fromDate(createdAt),
+      'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
-      'isEdited': isEdited,
-      'isPinned': isPinned,
-      'isLocked': isLocked,
+      'upvotes': 0,
+      'downvotes': 0,
+      'commentCount': 0,
+      'viewCount': 0,
+      'isEdited': false,
+      'isPinned': false,
+      'views': 0, // Initialize views
     };
   }
 
-  int get score => upvotes - downvotes;
+  PostModel copyWith({
+    String? id,
+    String? authorId,
+    String? authorName,
+    String? authorPhotoURL,
+    String? title,
+    String? content,
+    String? category,
+    List<String>? tags,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    int? upvotes,
+    int? downvotes,
+    int? commentCount,
+    int? viewCount,
+    bool? isEdited,
+    bool? isPinned,
+    int? views, // Add to copyWith
+  }) {
+    return PostModel(
+      id: id ?? this.id,
+      authorId: authorId ?? this.authorId,
+      authorName: authorName ?? this.authorName,
+      authorPhotoURL: authorPhotoURL ?? this.authorPhotoURL,
+      title: title ?? this.title,
+      content: content ?? this.content,
+      category: category ?? this.category,
+      tags: tags ?? this.tags,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      upvotes: upvotes ?? this.upvotes,
+      downvotes: downvotes ?? this.downvotes,
+      commentCount: commentCount ?? this.commentCount,
+      viewCount: viewCount ?? this.viewCount,
+      isEdited: isEdited ?? this.isEdited,
+      isPinned: isPinned ?? this.isPinned,
+      views: views ?? this.views, // Add to copyWith
+    );
+  }
 }
