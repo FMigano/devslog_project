@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/services/auth_service.dart';
+import '../../../shared/widgets/custom_button.dart';
+import '../../../shared/widgets/password_strength_indicator.dart';
+import 'email_verification_page.dart';
+import 'terms_and_conditions_page.dart';
 import 'login_page.dart';
-import 'package:fluttertoast/fluttertoast.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -14,41 +19,19 @@ class RegisterPage extends StatefulWidget {
 
 class _RegisterPageState extends State<RegisterPage> {
   final _formKey = GlobalKey<FormState>();
-  final _displayNameController = TextEditingController();
+  final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
-
-  // Password strength tracking
-  bool _hasMinLength = false;
-  bool _hasUppercase = false;
-  bool _hasLowercase = false;
-  bool _hasNumber = false;
-  bool _hasSpecialChar = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _passwordController.addListener(_checkPasswordStrength);
-  }
-
-  void _checkPasswordStrength() {
-    final password = _passwordController.text;
-    setState(() {
-      _hasMinLength = password.length >= 8;
-      _hasUppercase = password.contains(RegExp(r'[A-Z]'));
-      _hasLowercase = password.contains(RegExp(r'[a-z]'));
-      _hasNumber = password.contains(RegExp(r'[0-9]'));
-      _hasSpecialChar = password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'));
-    });
-  }
+  bool _agreedToTerms = false;
 
   @override
   void dispose() {
-    _displayNameController.dispose();
+    _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
@@ -58,59 +41,81 @@ class _RegisterPageState extends State<RegisterPage> {
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
 
+    if (!_agreedToTerms) {
+      Fluttertoast.showToast(
+        msg: 'Please agree to the Terms & Conditions',
+        backgroundColor: AppTheme.warningColor,
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
-      await authService.registerWithEmail(
+      
+      // Create account
+      final credential = await authService.signUpWithEmailAndPassword(
         _emailController.text.trim(),
         _passwordController.text,
-        _displayNameController.text.trim(),
+        _nameController.text.trim(),
       );
 
+      // Send email verification
+      if (credential.user != null) {
+        try {
+          await credential.user!.sendEmailVerification();
+        } catch (emailError) {
+          // Email sending failed, but account was created
+          print('Failed to send verification email: $emailError');
+        }
+      }
+
       if (mounted) {
-        Navigator.of(context).pop();
+        // Show success message
         Fluttertoast.showToast(
-          msg: 'Account created successfully!',
+          msg: '✅ Account created! Please verify your email.',
           backgroundColor: AppTheme.successColor,
+          toastLength: Toast.LENGTH_LONG,
+        );
+
+        // Navigate to email verification page
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const EmailVerificationPage()),
         );
       }
+    } on Exception catch (e) {
+      // Only show error if account creation actually failed
+      if (mounted) {
+        final errorMessage = e.toString().replaceAll('Exception: ', '');
+        
+        // Check if it's an actual error or just a duplicate account
+        if (errorMessage.contains('email-already-in-use')) {
+          Fluttertoast.showToast(
+            msg: 'This email is already registered. Please login instead.',
+            backgroundColor: AppTheme.warningColor,
+            toastLength: Toast.LENGTH_LONG,
+          );
+        } else {
+          Fluttertoast.showToast(
+            msg: 'Registration failed: $errorMessage',
+            backgroundColor: AppTheme.errorColor,
+            toastLength: Toast.LENGTH_LONG,
+          );
+        }
+      }
     } catch (e) {
+      // Generic error handler
       if (mounted) {
         Fluttertoast.showToast(
-          msg: e.toString(),
+          msg: 'An unexpected error occurred. Please try again.',
           backgroundColor: AppTheme.errorColor,
-          toastLength: Toast.LENGTH_LONG,
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  Widget _buildPasswordRequirement(String text, bool isMet) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Icon(
-            isMet ? Icons.check_circle : Icons.cancel,
-            size: 16,
-            color: isMet ? AppTheme.successColor : AppTheme.errorColor,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            text,
-            style: TextStyle(
-              color: isMet ? AppTheme.successColor : AppTheme.darkTextSecondary,
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -148,50 +153,40 @@ class _RegisterPageState extends State<RegisterPage> {
                       key: _formKey,
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Logo
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: AppTheme.darkPrimary.withOpacity(0.2),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.person_add,
-                              size: 48,
-                              color: AppTheme.darkPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 24),
+                          // Logo/Title
                           Text(
-                            'Create Account',
+                            '📝 Create Account',
                             style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                                   fontWeight: FontWeight.bold,
                                   color: AppTheme.darkTextPrimary,
                                 ),
+                            textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Join the DevsLog community',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: AppTheme.darkTextSecondary,
-                                ),
+                            'Join DevsLog community today',
+                            style: TextStyle(
+                              color: AppTheme.darkTextSecondary,
+                              fontSize: 14,
+                            ),
+                            textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 32),
 
-                          // Display Name Field
+                          // Name Field
                           TextFormField(
-                            controller: _displayNameController,
+                            controller: _nameController,
                             style: TextStyle(color: AppTheme.darkTextPrimary),
                             decoration: InputDecoration(
-                              labelText: 'Display Name',
-                              labelStyle: TextStyle(color: AppTheme.darkTextSecondary),
-                              prefixIcon: Icon(Icons.person_outline, color: AppTheme.darkPrimary),
+                              labelText: 'Full Name',
+                              prefixIcon: Icon(Icons.person, color: AppTheme.darkPrimary),
                               filled: true,
                               fillColor: AppTheme.darkSurfaceVariant,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(color: AppTheme.darkDivider),
+                                borderSide: BorderSide.none,
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
@@ -206,8 +201,8 @@ class _RegisterPageState extends State<RegisterPage> {
                               if (value == null || value.isEmpty) {
                                 return 'Please enter your name';
                               }
-                              if (value.length < 2) {
-                                return 'Name must be at least 2 characters';
+                              if (value.length < 3) {
+                                return 'Name must be at least 3 characters';
                               }
                               return null;
                             },
@@ -221,13 +216,12 @@ class _RegisterPageState extends State<RegisterPage> {
                             style: TextStyle(color: AppTheme.darkTextPrimary),
                             decoration: InputDecoration(
                               labelText: 'Email',
-                              labelStyle: TextStyle(color: AppTheme.darkTextSecondary),
-                              prefixIcon: Icon(Icons.email_outlined, color: AppTheme.darkPrimary),
+                              prefixIcon: Icon(Icons.email, color: AppTheme.darkPrimary),
                               filled: true,
                               fillColor: AppTheme.darkSurfaceVariant,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(color: AppTheme.darkDivider),
+                                borderSide: BorderSide.none,
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
@@ -257,22 +251,19 @@ class _RegisterPageState extends State<RegisterPage> {
                             style: TextStyle(color: AppTheme.darkTextPrimary),
                             decoration: InputDecoration(
                               labelText: 'Password',
-                              labelStyle: TextStyle(color: AppTheme.darkTextSecondary),
-                              prefixIcon: Icon(Icons.lock_outline, color: AppTheme.darkPrimary),
+                              prefixIcon: Icon(Icons.lock, color: AppTheme.darkPrimary),
                               suffixIcon: IconButton(
                                 icon: Icon(
-                                  _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                                  _obscurePassword ? Icons.visibility : Icons.visibility_off,
                                   color: AppTheme.darkTextSecondary,
                                 ),
-                                onPressed: () {
-                                  setState(() => _obscurePassword = !_obscurePassword);
-                                },
+                                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                               ),
                               filled: true,
                               fillColor: AppTheme.darkSurfaceVariant,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(color: AppTheme.darkDivider),
+                                borderSide: BorderSide.none,
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
@@ -281,14 +272,6 @@ class _RegisterPageState extends State<RegisterPage> {
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 borderSide: BorderSide(color: AppTheme.darkPrimary, width: 2),
-                              ),
-                              errorBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(color: AppTheme.errorColor),
-                              ),
-                              focusedErrorBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(color: AppTheme.errorColor, width: 2),
                               ),
                             ),
                             validator: (value) {
@@ -298,53 +281,13 @@ class _RegisterPageState extends State<RegisterPage> {
                               if (value.length < 8) {
                                 return 'Password must be at least 8 characters';
                               }
-                              if (!value.contains(RegExp(r'[A-Z]'))) {
-                                return 'Password must contain at least one uppercase letter';
-                              }
-                              if (!value.contains(RegExp(r'[a-z]'))) {
-                                return 'Password must contain at least one lowercase letter';
-                              }
-                              if (!value.contains(RegExp(r'[0-9]'))) {
-                                return 'Password must contain at least one number';
-                              }
-                              if (!value.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'))) {
-                                return 'Password must contain at least one special character';
-                              }
                               return null;
                             },
+                            onChanged: (_) => setState(() {}),
                           ),
                           
                           // Password Strength Indicator
-                          if (_passwordController.text.isNotEmpty)
-                            Container(
-                              margin: const EdgeInsets.only(top: 12),
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: AppTheme.darkSurfaceVariant,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: AppTheme.darkDivider),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Password Requirements:',
-                                    style: TextStyle(
-                                      color: AppTheme.darkTextPrimary,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  _buildPasswordRequirement('At least 8 characters', _hasMinLength),
-                                  _buildPasswordRequirement('One uppercase letter', _hasUppercase),
-                                  _buildPasswordRequirement('One lowercase letter', _hasLowercase),
-                                  _buildPasswordRequirement('One number', _hasNumber),
-                                  _buildPasswordRequirement('One special character', _hasSpecialChar),
-                                ],
-                              ),
-                            ),
-                          
+                          PasswordStrengthIndicator(password: _passwordController.text),
                           const SizedBox(height: 16),
 
                           // Confirm Password Field
@@ -354,22 +297,19 @@ class _RegisterPageState extends State<RegisterPage> {
                             style: TextStyle(color: AppTheme.darkTextPrimary),
                             decoration: InputDecoration(
                               labelText: 'Confirm Password',
-                              labelStyle: TextStyle(color: AppTheme.darkTextSecondary),
                               prefixIcon: Icon(Icons.lock_outline, color: AppTheme.darkPrimary),
                               suffixIcon: IconButton(
                                 icon: Icon(
-                                  _obscureConfirmPassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                                  _obscureConfirmPassword ? Icons.visibility : Icons.visibility_off,
                                   color: AppTheme.darkTextSecondary,
                                 ),
-                                onPressed: () {
-                                  setState(() => _obscureConfirmPassword = !_obscureConfirmPassword);
-                                },
+                                onPressed: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
                               ),
                               filled: true,
                               fillColor: AppTheme.darkSurfaceVariant,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(color: AppTheme.darkDivider),
+                                borderSide: BorderSide.none,
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
@@ -381,114 +321,103 @@ class _RegisterPageState extends State<RegisterPage> {
                               ),
                             ),
                             validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please confirm your password';
-                              }
                               if (value != _passwordController.text) {
                                 return 'Passwords do not match';
                               }
                               return null;
                             },
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 24),
 
-                          // Password Strength Indicators
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Password must contain:',
-                                style: TextStyle(
-                                  color: AppTheme.darkTextSecondary,
-                                  fontSize: 12,
-                                ),
+                          // Terms & Conditions Checkbox
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppTheme.darkSurfaceVariant.withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _agreedToTerms
+                                    ? AppTheme.darkPrimary
+                                    : AppTheme.darkDivider,
                               ),
-                              const SizedBox(height: 8),
-                              _buildPasswordRequirement('• At least 8 characters', _hasMinLength),
-                              _buildPasswordRequirement('• At least one uppercase letter', _hasUppercase),
-                              _buildPasswordRequirement('• At least one lowercase letter', _hasLowercase),
-                              _buildPasswordRequirement('• At least one number', _hasNumber),
-                              _buildPasswordRequirement('• At least one special character', _hasSpecialChar),
-                            ],
-                          ),
-                          const SizedBox(height: 32),
-
-                          // Register Button
-                          SizedBox(
-                            width: double.infinity,
-                            height: 50,
-                            child: ElevatedButton(
-                              onPressed: _isLoading ? null : _register,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppTheme.darkPrimary,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                Checkbox(
+                                  value: _agreedToTerms,
+                                  onChanged: (value) => setState(() => _agreedToTerms = value ?? false),
+                                  activeColor: AppTheme.darkPrimary,
                                 ),
-                                elevation: 0,
-                              ),
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Text(
-                                      'Create Account',
+                                Expanded(
+                                  child: RichText(
+                                    text: TextSpan(
+                                      text: 'I agree to the ',
                                       style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600,
+                                        color: AppTheme.darkTextSecondary,
+                                        fontSize: 13,
                                       ),
+                                      children: [
+                                        TextSpan(
+                                          text: 'Terms & Conditions',
+                                          style: TextStyle(
+                                            color: AppTheme.darkPrimary,
+                                            fontWeight: FontWeight.bold,
+                                            decoration: TextDecoration.underline,
+                                          ),
+                                          recognizer: TapGestureRecognizer()
+                                            ..onTap = () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) => const TermsAndConditionsPage(),
+                                                ),
+                                              );
+                                            },
+                                        ),
+                                      ],
                                     ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           const SizedBox(height: 24),
 
-                          // Divider
-                          Row(
-                            children: [
-                              Expanded(child: Divider(color: AppTheme.darkDivider)),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                child: Text(
-                                  'OR',
-                                  style: TextStyle(color: AppTheme.darkTextSecondary),
-                                ),
-                              ),
-                              Expanded(child: Divider(color: AppTheme.darkDivider)),
-                            ],
+                          // Register Button
+                          SizedBox(
+                            height: 50,
+                            child: CustomButton(
+                              text: 'Create Account',
+                              onPressed: _isLoading ? null : _register,
+                              isLoading: _isLoading,
+                            ),
                           ),
-                          const SizedBox(height: 24),
+                          const SizedBox(height: 16),
 
                           // Login Link
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                'Already have an account? ',
+                          Center(
+                            child: RichText(
+                              text: TextSpan(
+                                text: 'Already have an account? ',
                                 style: TextStyle(color: AppTheme.darkTextSecondary),
-                              ),
-                              TextButton(
-                                onPressed: () {
-                                  Navigator.pushReplacement(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => const LoginPage(),
+                                children: [
+                                  TextSpan(
+                                    text: 'Login',
+                                    style: TextStyle(
+                                      color: AppTheme.darkPrimary,
+                                      fontWeight: FontWeight.bold,
                                     ),
-                                  );
-                                },
-                                child: Text(
-                                  'Sign In',
-                                  style: TextStyle(
-                                    color: AppTheme.darkPrimary,
-                                    fontWeight: FontWeight.bold,
+                                    recognizer: TapGestureRecognizer()
+                                      ..onTap = () {
+                                        Navigator.pushReplacement(
+                                          context,
+                                          MaterialPageRoute(builder: (_) => const LoginPage()),
+                                        );
+                                      },
                                   ),
-                                ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
                         ],
                       ),

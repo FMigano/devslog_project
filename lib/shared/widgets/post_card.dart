@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/theme/app_theme.dart';
 import '../models/post_model.dart';
 
@@ -125,21 +126,7 @@ class PostCard extends StatelessWidget {
                 }).toList(),
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  _buildStat(
-                      Icons.arrow_upward, post.upvotes, AppTheme.successColor),
-                  const SizedBox(width: 16),
-                  _buildStat(
-                      Icons.arrow_downward, post.downvotes, AppTheme.errorColor),
-                  const SizedBox(width: 16),
-                  _buildStat(Icons.comment_outlined, post.commentCount,
-                      AppTheme.darkTextSecondary),
-                  const SizedBox(width: 16),
-                  _buildStat(Icons.visibility_outlined, post.views,
-                      AppTheme.darkTextSecondary),
-                ],
-              ),
+              _buildPostStats(post),
             ],
           ),
         ),
@@ -147,13 +134,39 @@ class PostCard extends StatelessWidget {
     );
   }
 
-  Widget _buildStat(IconData icon, int count, Color color) {
+  Widget _buildPostStats(PostModel post) {
+    return Row(
+      children: [
+        _buildStatItem(Icons.arrow_upward, '${post.upvotes}', AppTheme.successColor),
+        const SizedBox(width: 16),
+        _buildStatItem(Icons.arrow_downward, '${post.downvotes}', AppTheme.errorColor),
+        const SizedBox(width: 16),
+        _buildStatItem(Icons.comment_outlined, '${post.commentCount}', Colors.blue),
+        const SizedBox(width: 16),
+        // Use StreamBuilder for real-time view count
+        StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('posts')
+              .doc(post.id)
+              .snapshots(),
+          builder: (context, snapshot) {
+            final views = snapshot.hasData && snapshot.data != null
+                ? ((snapshot.data!.data() as Map<String, dynamic>?)?['views'] as int?) ?? post.views
+                : post.views;
+            return _buildStatItem(Icons.visibility, '$views', AppTheme.darkTextSecondary);
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatItem(IconData icon, String count, Color color) {
     return Row(
       children: [
         Icon(icon, size: 16, color: color),
         const SizedBox(width: 4),
         Text(
-          '$count',
+          count,
           style: TextStyle(
             color: color,
             fontSize: 14,

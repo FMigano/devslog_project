@@ -178,21 +178,19 @@ class _LoginPageState extends State<LoginPage> {
                             decoration: InputDecoration(
                               labelText: 'Password',
                               labelStyle: TextStyle(color: AppTheme.darkTextSecondary),
-                              prefixIcon: Icon(Icons.lock_outline, color: AppTheme.darkPrimary),
+                              prefixIcon: Icon(Icons.lock, color: AppTheme.darkPrimary),
                               suffixIcon: IconButton(
                                 icon: Icon(
-                                  _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
                                   color: AppTheme.darkTextSecondary,
                                 ),
-                                onPressed: () {
-                                  setState(() => _obscurePassword = !_obscurePassword);
-                                },
+                                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                               ),
                               filled: true,
                               fillColor: AppTheme.darkSurfaceVariant,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(color: AppTheme.darkDivider),
+                                borderSide: BorderSide.none,
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),

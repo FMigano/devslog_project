@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'core/config/firebase_config.dart';
 import 'core/theme/app_theme.dart';
 import 'shared/services/auth_service.dart';
+import 'shared/services/firestore_service.dart';
 import 'shared/providers/theme_provider.dart';
 import 'features/landing/pages/landing_page.dart';
 import 'features/home/pages/home_page.dart';
@@ -84,8 +85,12 @@ Future<void> _createDefaultAdminIfNeeded() async {
     } else {
       print('✅ Admin account already exists');
     }
+    
+    // RUN MIGRATION ONCE
+    await FirestoreService().migrateCommentsToSubcollection();
+    
   } catch (e) {
-    print('⚠️ Error creating default admin: $e');
+    print('⚠️ Error: $e');
   }
 }
 

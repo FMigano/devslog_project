@@ -392,8 +392,8 @@ class _CreatePostPageState extends State<CreatePostPage> with SingleTickerProvid
                                           ),
                                         ),
                                       ),
-                                    ),
-                                  );
+                                    )
+                                    );
                                 }).toList(),
                             ),
                           ],
@@ -471,13 +471,11 @@ class _CreatePostPageState extends State<CreatePostPage> with SingleTickerProvid
 
   Widget _buildGlassCard({required Widget child}) {
     return Container(
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: AppTheme.darkSurface.withOpacity(0.7),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppTheme.darkPrimary.withOpacity(0.3),
-          width: 1,
-        ),
+        color: AppTheme.darkSurface.withOpacity(0.8),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.darkDivider.withOpacity(0.3)),
         boxShadow: [
           BoxShadow(
             color: AppTheme.darkPrimary.withOpacity(0.1),
@@ -486,10 +484,7 @@ class _CreatePostPageState extends State<CreatePostPage> with SingleTickerProvid
           ),
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: child,
-      ),
+      child: child,
     );
   }
 
@@ -755,56 +750,42 @@ class _CreatePostPageState extends State<CreatePostPage> with SingleTickerProvid
 
       String content = await _htmlController.getText();
       if (content.isEmpty || content == '<p></p>' || content == '<p><br></p>') {
-        throw Exception('Please add some content to your post');
+        throw Exception('Content cannot be empty');
       }
 
-      // Insert image into content if available (stored as base64)
-      if (_imageDataUrl != null) {
-        content = '<div style="text-align: center; margin: 20px 0;"><img src="$_imageDataUrl" style="max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);" /></div>$content';
-      }
-
-      final tags = List<String>.from(_selectedTags);
-
+      // Create post with image data URL
       final post = PostModel(
         id: '',
+        title: _titleController.text.trim(),
+        content: _imageDataUrl != null 
+            ? '<img src="$_imageDataUrl" style="max-width:100%; height:auto;" /><br>$content'
+            : content,
         authorId: user.uid,
         authorName: user.displayName,
-        authorPhotoURL: user.photoURL,
-        title: _titleController.text.trim(),
-        content: content,
+        authorEmail: user.email,
         category: _selectedCategory,
-        tags: tags,
-        upvotes: 0,
-        downvotes: 0,
-        commentCount: 0,
-        viewCount: 0,
-        views: 0,
+        tags: _selectedTags,
         createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
       );
 
       await FirestoreService().createPost(post);
 
       if (mounted) {
         Fluttertoast.showToast(
-          msg: '🚀 Post published successfully!',
+          msg: '✨ Post submitted for approval!',
           backgroundColor: AppTheme.successColor,
           toastLength: Toast.LENGTH_LONG,
         );
-        Navigator.pop(context, true);
+
+        Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) {
-        Fluttertoast.showToast(
-          msg: '❌ Failed to publish: ${e.toString()}',
-          backgroundColor: AppTheme.errorColor,
-          toastLength: Toast.LENGTH_LONG,
-        );
-      }
+      Fluttertoast.showToast(
+        msg: '❌ Failed to create post: $e',
+        backgroundColor: AppTheme.errorColor,
+      );
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 }

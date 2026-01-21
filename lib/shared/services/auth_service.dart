@@ -25,8 +25,17 @@ class AuthService {
     }
   }
 
-  // Register with email and password
+  // Register with email and password (alternative name)
   Future<UserCredential> registerWithEmail(
+    String email,
+    String password,
+    String displayName,
+  ) async {
+    return signUpWithEmailAndPassword(email, password, displayName);
+  }
+
+  // Sign up with email and password
+  Future<UserCredential> signUpWithEmailAndPassword(
     String email,
     String password,
     String displayName,
@@ -42,15 +51,11 @@ class AuthService {
         uid: credential.user!.uid,
         email: email,
         displayName: displayName,
-        role: 'user',
         createdAt: DateTime.now(),
         isEmailVerified: false,
       );
 
-      await _firestore
-          .collection('users')
-          .doc(credential.user!.uid)
-          .set(user.toFirestore());
+      await _firestore.collection('users').doc(credential.user!.uid).set(user.toFirestore());
 
       // Send email verification
       await credential.user!.sendEmailVerification();
@@ -66,10 +71,7 @@ class AuthService {
     try {
       if (currentUser == null) return null;
 
-      final doc = await _firestore
-          .collection('users')
-          .doc(currentUser!.uid)
-          .get();
+      final doc = await _firestore.collection('users').doc(currentUser!.uid).get();
 
       if (!doc.exists) return null;
 
@@ -90,20 +92,10 @@ class AuthService {
     try {
       await _auth.sendPasswordResetEmail(email: email);
     } on FirebaseAuthException catch (e) {
-      String message;
-      switch (e.code) {
-        case 'user-not-found':
-          message = 'No user found with this email address.';
-          break;
-        case 'invalid-email':
-          message = 'Invalid email address.';
-          break;
-        default:
-          message = 'Failed to send password reset email. Please try again.';
-      }
+      final message = _getAuthErrorMessage(e.code);
       throw Exception(message);
     } catch (e) {
-      throw Exception('An unexpected error occurred. Please try again.');
+      throw Exception('Failed to send password reset email');
     }
   }
 
@@ -111,21 +103,21 @@ class AuthService {
   String _getAuthErrorMessage(String code) {
     switch (code) {
       case 'user-not-found':
-        return 'No user found with this email.';
+        return 'No user found with this email';
       case 'wrong-password':
-        return 'Wrong password provided.';
+        return 'Incorrect password';
       case 'email-already-in-use':
-        return 'An account already exists with this email.';
-      case 'weak-password':
-        return 'The password is too weak.';
+        return 'An account already exists with this email';
       case 'invalid-email':
-        return 'The email address is invalid.';
+        return 'Invalid email address';
+      case 'weak-password':
+        return 'Password is too weak';
+      case 'operation-not-allowed':
+        return 'Operation not allowed';
       case 'user-disabled':
-        return 'This account has been disabled.';
-      case 'too-many-requests':
-        return 'Too many attempts. Please try again later.';
+        return 'This account has been disabled';
       default:
-        return 'An error occurred. Please try again.';
+        return 'An error occurred. Please try again';
     }
   }
 }

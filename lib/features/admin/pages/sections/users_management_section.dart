@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/models/user_model.dart';
 import '../../widgets/pagination_controls.dart';
@@ -42,25 +43,33 @@ class _UsersManagementSectionState extends State<UsersManagementSection> {
                   Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(8),
+                          color: Colors.green.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Icon(
-                          Icons.people,
-                          color: Colors.blue,
-                          size: 24,
-                        ),
+                        child: const Icon(Icons.people, color: Colors.green, size: 28),
                       ),
-                      const SizedBox(width: 12),
-                      Text(
-                        '👥 User Management',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.darkTextPrimary,
-                        ),
+                      const SizedBox(width: 16),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Users Management',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.darkTextPrimary,
+                            ),
+                          ),
+                          Text(
+                            'Manage user accounts and permissions',
+                            style: TextStyle(
+                              color: AppTheme.darkTextSecondary,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -69,16 +78,16 @@ class _UsersManagementSectionState extends State<UsersManagementSection> {
                     builder: (context, snapshot) {
                       final count = snapshot.data?.length ?? 0;
                       return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                         decoration: BoxDecoration(
-                          color: AppTheme.darkSurfaceVariant,
+                          color: Colors.green.withOpacity(0.2),
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: AppTheme.darkDivider),
+                          border: Border.all(color: Colors.green),
                         ),
                         child: Text(
-                          'Total: $count users',
-                          style: TextStyle(
-                            color: AppTheme.darkTextSecondary,
+                          '$count Users',
+                          style: const TextStyle(
+                            color: Colors.green,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -90,50 +99,39 @@ class _UsersManagementSectionState extends State<UsersManagementSection> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  // Search Bar
                   Expanded(
                     child: TextField(
                       onChanged: (value) => setState(() => _searchQuery = value),
                       style: TextStyle(color: AppTheme.darkTextPrimary),
                       decoration: InputDecoration(
-                        hintText: 'Search users by name or email...',
+                        hintText: 'Search by name or email...',
                         hintStyle: TextStyle(color: AppTheme.darkTextSecondary),
                         prefixIcon: Icon(Icons.search, color: AppTheme.darkTextSecondary),
                         filled: true,
                         fillColor: AppTheme.darkSurfaceVariant,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
+                          borderSide: BorderSide(color: AppTheme.darkDivider),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: AppTheme.darkDivider),
+                        ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 16),
-                  // Role Filter
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: AppTheme.darkSurfaceVariant,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppTheme.darkDivider),
-                    ),
-                    child: DropdownButton<String>(
-                      value: _filterRole,
-                      underline: const SizedBox(),
-                      dropdownColor: AppTheme.darkSurface,
-                      style: TextStyle(color: AppTheme.darkTextPrimary),
-                      icon: Icon(Icons.filter_list, color: AppTheme.darkTextSecondary),
-                      items: const [
-                        DropdownMenuItem(value: 'all', child: Text('All Roles')),
-                        DropdownMenuItem(value: 'admin', child: Text('Admins')),
-                        DropdownMenuItem(value: 'user', child: Text('Users')),
-                      ],
-                      onChanged: (value) => setState(() {
-                        _filterRole = value!;
-                        _currentPage = 0;
-                      }),
-                    ),
+                  DropdownButton<String>(
+                    value: _filterRole,
+                    dropdownColor: AppTheme.darkSurface,
+                    style: TextStyle(color: AppTheme.darkTextPrimary),
+                    underline: Container(),
+                    items: const [
+                      DropdownMenuItem(value: 'all', child: Text('All Roles')),
+                      DropdownMenuItem(value: 'user', child: Text('Users')),
+                      DropdownMenuItem(value: 'admin', child: Text('Admins')),
+                    ],
+                    onChanged: (value) => setState(() => _filterRole = value!),
                   ),
                 ],
               ),
@@ -150,11 +148,20 @@ class _UsersManagementSectionState extends State<UsersManagementSection> {
                 return const Center(child: CircularProgressIndicator());
               }
 
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text(
+                    'Error: ${snapshot.error}',
+                    style: TextStyle(color: AppTheme.errorColor),
+                  ),
+                );
+              }
+
               if (!snapshot.hasData || snapshot.data!.isEmpty) {
                 return EmptyStateWidget(
                   icon: Icons.people_outline,
                   title: 'No Users Found',
-                  message: 'There are no users in the system yet.',
+                  message: 'No users in the system yet.',
                 );
               }
 
@@ -172,6 +179,7 @@ class _UsersManagementSectionState extends State<UsersManagementSection> {
                 users = users.where((user) => user.role == _filterRole).toList();
               }
 
+              // Pagination
               final totalPages = (users.length / _itemsPerPage).ceil();
               final startIndex = _currentPage * _itemsPerPage;
               final endIndex = (startIndex + _itemsPerPage).clamp(0, users.length);
@@ -185,7 +193,7 @@ class _UsersManagementSectionState extends State<UsersManagementSection> {
                         margin: const EdgeInsets.all(24),
                         decoration: BoxDecoration(
                           color: AppTheme.darkSurface,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: AppTheme.darkDivider),
                         ),
                         child: Column(
@@ -194,111 +202,97 @@ class _UsersManagementSectionState extends State<UsersManagementSection> {
                             Container(
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                color: AppTheme.darkPrimary.withOpacity(0.1),
+                                color: AppTheme.darkSurfaceVariant,
                                 borderRadius: const BorderRadius.only(
-                                  topLeft: Radius.circular(12),
-                                  topRight: Radius.circular(12),
+                                  topLeft: Radius.circular(16),
+                                  topRight: Radius.circular(16),
                                 ),
                               ),
                               child: Row(
                                 children: [
-                                  Expanded(
-                                    flex: 3,
+                                  SizedBox(
+                                    width: 250,
                                     child: Text(
-                                      'User',
+                                      'USER',
                                       style: TextStyle(
-                                        color: AppTheme.darkTextPrimary,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
+                                        color: AppTheme.darkTextSecondary,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: 150,
+                                    child: Text(
+                                      'ROLE',
+                                      style: TextStyle(
+                                        color: AppTheme.darkTextSecondary,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: 120,
+                                    child: Text(
+                                      'POSTS',
+                                      style: TextStyle(
+                                        color: AppTheme.darkTextSecondary,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
                                       ),
                                     ),
                                   ),
                                   Expanded(
-                                    flex: 3,
                                     child: Text(
-                                      'Email',
+                                      'JOINED',
                                       style: TextStyle(
-                                        color: AppTheme.darkTextPrimary,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
+                                        color: AppTheme.darkTextSecondary,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
                                       ),
                                     ),
                                   ),
-                                  Expanded(
-                                    flex: 1,
+                                  SizedBox(
+                                    width: 200,
                                     child: Text(
-                                      'Role',
+                                      'ACTIONS',
+                                      textAlign: TextAlign.right,
                                       style: TextStyle(
-                                        color: AppTheme.darkTextPrimary,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
+                                        color: AppTheme.darkTextSecondary,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
                                       ),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    flex: 1,
-                                    child: Text(
-                                      'Posts',
-                                      style: TextStyle(
-                                        color: AppTheme.darkTextPrimary,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    flex: 2,
-                                    child: Text(
-                                      'Joined',
-                                      style: TextStyle(
-                                        color: AppTheme.darkTextPrimary,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    flex: 1,
-                                    child: Text(
-                                      'Actions',
-                                      style: TextStyle(
-                                        color: AppTheme.darkTextPrimary,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                      ),
-                                      textAlign: TextAlign.center,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                            // Table Rows
+
+                            // Table Body
                             ...paginatedUsers.asMap().entries.map((entry) {
                               final index = entry.key;
                               final user = entry.value;
-                              final isEven = index % 2 == 0;
+                              final isLast = index == paginatedUsers.length - 1;
 
                               return Container(
                                 padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
-                                  color: isEven
-                                      ? AppTheme.darkSurfaceVariant.withOpacity(0.3)
-                                      : Colors.transparent,
                                   border: Border(
-                                    bottom: BorderSide(
-                                      color: AppTheme.darkDivider.withOpacity(0.5),
-                                    ),
+                                    bottom: isLast
+                                        ? BorderSide.none
+                                        : BorderSide(color: AppTheme.darkDivider),
                                   ),
                                 ),
                                 child: Row(
                                   children: [
-                                    // User
-                                    Expanded(
-                                      flex: 3,
+                                    // User Info
+                                    SizedBox(
+                                      width: 250,
                                       child: Row(
                                         children: [
                                           CircleAvatar(
-                                            radius: 18,
+                                            radius: 20,
                                             backgroundColor: AppTheme.darkPrimary,
                                             backgroundImage: user.photoURL != null
                                                 ? NetworkImage(user.photoURL!)
@@ -307,57 +301,56 @@ class _UsersManagementSectionState extends State<UsersManagementSection> {
                                                 ? Text(
                                                     user.displayName[0].toUpperCase(),
                                                     style: const TextStyle(
-                                                      color: Colors.white,
                                                       fontWeight: FontWeight.bold,
-                                                      fontSize: 14,
                                                     ),
                                                   )
                                                 : null,
                                           ),
                                           const SizedBox(width: 12),
                                           Expanded(
-                                            child: Text(
-                                              user.displayName,
-                                              style: TextStyle(
-                                                color: AppTheme.darkTextPrimary,
-                                                fontWeight: FontWeight.w600,
-                                                fontSize: 14,
-                                              ),
-                                              overflow: TextOverflow.ellipsis,
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  user.displayName,
+                                                  style: TextStyle(
+                                                    color: AppTheme.darkTextPrimary,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                                Text(
+                                                  user.email,
+                                                  style: TextStyle(
+                                                    color: AppTheme.darkTextSecondary,
+                                                    fontSize: 12,
+                                                  ),
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         ],
                                       ),
                                     ),
-                                    // Email
-                                    Expanded(
-                                      flex: 3,
-                                      child: Text(
-                                        user.email,
-                                        style: TextStyle(
-                                          color: AppTheme.darkTextSecondary,
-                                          fontSize: 13,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
+
                                     // Role
-                                    Expanded(
-                                      flex: 1,
+                                    SizedBox(
+                                      width: 150,
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
+                                          horizontal: 12,
+                                          vertical: 6,
                                         ),
                                         decoration: BoxDecoration(
                                           color: user.isAdmin
                                               ? AppTheme.warningColor.withOpacity(0.2)
-                                              : Colors.grey.withOpacity(0.2),
-                                          borderRadius: BorderRadius.circular(8),
+                                              : Colors.blue.withOpacity(0.2),
+                                          borderRadius: BorderRadius.circular(20),
                                           border: Border.all(
                                             color: user.isAdmin
                                                 ? AppTheme.warningColor
-                                                : Colors.grey,
+                                                : Colors.blue,
                                           ),
                                         ),
                                         child: Text(
@@ -365,70 +358,59 @@ class _UsersManagementSectionState extends State<UsersManagementSection> {
                                           style: TextStyle(
                                             color: user.isAdmin
                                                 ? AppTheme.warningColor
-                                                : Colors.grey,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                          textAlign: TextAlign.center,
-                                        ),
-                                      ),
-                                    ),
-                                    // Posts
-                                    Expanded(
-                                      flex: 1,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.blue.withOpacity(0.1),
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: Text(
-                                          '${user.postCount}',
-                                          style: const TextStyle(
-                                            color: Colors.blue,
+                                                : Colors.blue,
                                             fontWeight: FontWeight.w600,
-                                            fontSize: 13,
+                                            fontSize: 12,
                                           ),
                                           textAlign: TextAlign.center,
                                         ),
                                       ),
                                     ),
-                                    // Joined
+
+                                    // Posts Count
+                                    SizedBox(
+                                      width: 120,
+                                      child: Text(
+                                        '${user.postCount} posts',
+                                        style: TextStyle(
+                                          color: AppTheme.darkTextPrimary,
+                                        ),
+                                      ),
+                                    ),
+
+                                    // Joined Date
                                     Expanded(
-                                      flex: 2,
                                       child: Text(
                                         timeago.format(user.createdAt),
                                         style: TextStyle(
                                           color: AppTheme.darkTextSecondary,
-                                          fontSize: 13,
                                         ),
                                       ),
                                     ),
+
                                     // Actions
-                                    Expanded(
-                                      flex: 1,
+                                    SizedBox(
+                                      width: 200,
                                       child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        mainAxisAlignment: MainAxisAlignment.end,
                                         children: [
                                           IconButton(
                                             icon: const Icon(Icons.edit, size: 18),
-                                            color: AppTheme.darkPrimary,
                                             onPressed: () => _showEditDialog(user),
                                             tooltip: 'Edit User',
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(),
+                                            color: Colors.blue,
                                           ),
-                                          const SizedBox(width: 8),
+                                          IconButton(
+                                            icon: const Icon(Icons.visibility, size: 18),
+                                            onPressed: () => _showViewDialog(user),
+                                            tooltip: 'View Details',
+                                            color: AppTheme.darkTextSecondary,
+                                          ),
                                           IconButton(
                                             icon: const Icon(Icons.delete, size: 18),
-                                            color: AppTheme.errorColor,
                                             onPressed: () => _deleteUser(user),
                                             tooltip: 'Delete User',
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(),
+                                            color: AppTheme.errorColor,
                                           ),
                                         ],
                                       ),
@@ -457,7 +439,217 @@ class _UsersManagementSectionState extends State<UsersManagementSection> {
     );
   }
 
+  // ⭐ NEW: Edit user dialog
   void _showEditDialog(UserModel user) {
+    final nameController = TextEditingController(text: user.displayName);
+    final emailController = TextEditingController(text: user.email);
+    final bioController = TextEditingController(text: user.bio ?? '');
+    String selectedRole = user.role;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.darkSurface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: AppTheme.darkDivider),
+        ),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.edit, color: Colors.blue, size: 24),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Edit User',
+              style: TextStyle(
+                color: AppTheme.darkTextPrimary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Display Name
+              Text(
+                'Display Name',
+                style: TextStyle(
+                  color: AppTheme.darkTextSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: nameController,
+                style: TextStyle(color: AppTheme.darkTextPrimary),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: AppTheme.darkSurfaceVariant,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: AppTheme.darkDivider),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: AppTheme.darkDivider),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Email
+              Text(
+                'Email',
+                style: TextStyle(
+                  color: AppTheme.darkTextSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: emailController,
+                style: TextStyle(color: AppTheme.darkTextPrimary),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: AppTheme.darkSurfaceVariant,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: AppTheme.darkDivider),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: AppTheme.darkDivider),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Role
+              Text(
+                'Role',
+                style: TextStyle(
+                  color: AppTheme.darkTextSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              StatefulBuilder(
+                builder: (context, setState) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.darkSurfaceVariant,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppTheme.darkDivider),
+                    ),
+                    child: DropdownButton<String>(
+                      value: selectedRole,
+                      isExpanded: true,
+                      underline: const SizedBox(),
+                      dropdownColor: AppTheme.darkSurface,
+                      style: TextStyle(color: AppTheme.darkTextPrimary),
+                      items: const [
+                        DropdownMenuItem(value: 'user', child: Text('User')),
+                        DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                      ],
+                      onChanged: (value) {
+                        setState(() => selectedRole = value!);
+                      },
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Bio
+              Text(
+                'Bio',
+                style: TextStyle(
+                  color: AppTheme.darkTextSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: bioController,
+                maxLines: 3,
+                style: TextStyle(color: AppTheme.darkTextPrimary),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: AppTheme.darkSurfaceVariant,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: AppTheme.darkDivider),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: AppTheme.darkDivider),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: AppTheme.darkTextSecondary),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                // Update user in Firestore
+                await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(user.uid)
+                    .update({
+                  'displayName': nameController.text.trim(),
+                  'email': emailController.text.trim(),
+                  'role': selectedRole,
+                  'bio': bioController.text.trim(),
+                  'updatedAt': FieldValue.serverTimestamp(),
+                });
+
+                Navigator.pop(context);
+                Fluttertoast.showToast(
+                  msg: '✅ User updated successfully',
+                  backgroundColor: AppTheme.successColor,
+                );
+              } catch (e) {
+                Fluttertoast.showToast(
+                  msg: '❌ Failed to update user: $e',
+                  backgroundColor: AppTheme.errorColor,
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+            ),
+            child: const Text('Save Changes'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // View user details (read-only)
+  void _showViewDialog(UserModel user) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -481,7 +673,11 @@ class _UsersManagementSectionState extends State<UsersManagementSection> {
             _buildDetailRow('Email', user.email),
             _buildDetailRow('Role', user.role.toUpperCase()),
             _buildDetailRow('Posts', '${user.postCount}'),
+            _buildDetailRow('Comments', '${user.commentCount}'),
+            _buildDetailRow('Reputation', '${user.reputation}'),
             _buildDetailRow('Joined', timeago.format(user.createdAt)),
+            if (user.bio != null && user.bio!.isNotEmpty)
+              _buildDetailRow('Bio', user.bio!),
           ],
         ),
         actions: [
@@ -501,11 +697,12 @@ class _UsersManagementSectionState extends State<UsersManagementSection> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 80,
+            width: 100,
             child: Text(
               '$label:',
               style: TextStyle(
                 color: AppTheme.darkTextSecondary,
+                fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
             ),

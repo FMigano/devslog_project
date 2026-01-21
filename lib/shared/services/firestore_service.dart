@@ -3,29 +3,28 @@ import '../models/post_model.dart';
 import '../models/comment_model.dart';
 import '../models/user_model.dart';
 import 'auth_service.dart';
+import 'notification_service.dart';
 
 class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final NotificationService _notificationService = NotificationService();
 
   // Posts
   Stream<List<PostModel>> getPosts({String? category, int limit = 20}) {
-    Query query = _firestore.collection('posts');
-    
-    if (category != null && category != 'All' && category.isNotEmpty) {
-      query = query.where('category', isEqualTo: category).limit(limit);
-      
-      return query.snapshots().map((snapshot) {
-        final posts = snapshot.docs.map((doc) => PostModel.fromFirestore(doc)).toList();
-        posts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-        return posts;
-      });
+    Query query = _firestore
+        .collection('posts')
+        .where('isApproved', isEqualTo: true) // ⭐ Only approved posts
+        .orderBy('createdAt', descending: true);
+
+    if (category != null && category != 'All') {
+      query = query.where('category', isEqualTo: category);
     }
-    
-    return query
-        .orderBy('createdAt', descending: true)
-        .limit(limit)
-        .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) => PostModel.fromFirestore(doc)).toList());
+
+    return query.limit(limit).snapshots().map((snapshot) {
+      return snapshot.docs
+          .map((doc) => PostModel.fromFirestore(doc))
+          .toList();
+    });
   }
 
   Stream<List<PostModel>> getPostsByCategories(List<String> categories, {int limit = 20}) {
@@ -105,65 +104,139 @@ class FirestoreService {
     });
   }
 
-  Future<void> deletePost(String postId, String authorId) async {
-    await _firestore.collection('posts').doc(postId).delete();
-    await _firestore.collection('users').doc(authorId).update({
-      'postCount': FieldValue.increment(-1),
-    });
-    
-    final comments = await _firestore.collection('comments')
-        .where('postId', isEqualTo: postId)
-        .get();
-    
-    for (var doc in comments.docs) {
-      await doc.reference.delete();
+  Future<void> deletePost(String postId) async {
+    try {
+      print('🗑️ Deleting post: $postId');
+      
+      // Delete all comments for this post
+      final commentsSnapshot = await _firestore
+          .collection('comments')
+          .where('postId', isEqualTo: postId)
+          .get();
+      
+      for (var doc in commentsSnapshot.docs) {
+        // Delete all replies for each comment
+        final repliesSnapshot = await _firestore
+            .collection('comments')
+            .doc(doc.id)
+            .collection('replies')
+            .get();
+        
+        for (var replyDoc in repliesSnapshot.docs) {
+          await replyDoc.reference.delete();
+        }
+        
+        // Delete the comment
+        await doc.reference.delete();
+      }
+      
+      // Delete all votes for this post
+      final votesSnapshot = await _firestore
+          .collection('votes')
+          .where('postId', isEqualTo: postId)
+          .get();
+      
+      for (var doc in votesSnapshot.docs) {
+        await doc.reference.delete();
+      }
+      
+      // Delete all bookmarks for this post
+      final bookmarksSnapshot = await _firestore
+          .collection('bookmarks')
+          .where('postId', isEqualTo: postId)
+          .get();
+      
+      for (var doc in bookmarksSnapshot.docs) {
+        await doc.reference.delete();
+      }
+      
+      // Finally, delete the post itself
+      await _firestore.collection('posts').doc(postId).delete();
+      
+      print('✅ Post and all related data deleted');
+    } catch (e) {
+      print('❌ Error deleting post: $e');
+      rethrow;
     }
   }
 
   Future<void> incrementPostView(String postId) async {
     await _firestore.collection('posts').doc(postId).update({
-      'viewCount': FieldValue.increment(1),
+      'views': FieldValue.increment(1), // ← Changed from 'viewCount' to 'views'
     });
   }
 
-  // Comments
+  // Comments - Read from ROOT collection (where they currently are)
   Stream<List<CommentModel>> getComments(String postId) {
+    print('📥 Getting comments for post: $postId');
     return _firestore
-        .collection('comments')
+        .collection('comments')  // ← ROOT collection, not subcollection
         .where('postId', isEqualTo: postId)
+        .orderBy('createdAt', descending: false)
         .snapshots()
         .map((snapshot) {
-      final comments = snapshot.docs.map((doc) {
+      print('📊 Comments snapshot size: ${snapshot.docs.length}');
+      
+      return snapshot.docs.map((doc) {
         try {
+          print('📄 Processing comment: ${doc.id}');
           return CommentModel.fromFirestore(doc);
         } catch (e) {
+          print('❌ Error parsing comment ${doc.id}: $e');
           return null;
         }
-      }).whereType<CommentModel>().toList();
-      
-      // Sort by createdAt in ascending order (oldest first)
-      comments.sort((a, b) => a.createdAt.compareTo(b.createdAt));
-      
-      return comments;
+      })
+      .whereType<CommentModel>()
+      .toList();
     });
   }
 
   Future<void> addComment(CommentModel comment) async {
     try {
-      final commentData = comment.toFirestore();
-      await _firestore.collection('comments').add(commentData);
+      print('➕ Adding comment to post: ${comment.postId}');
       
-      // Increment comment count
+      // Add comment to ROOT collection (to match existing structure)
+      final docRef = await _firestore
+          .collection('comments')  // ← ROOT collection
+          .add(comment.toMap());
+      
+      print('✅ Comment added with ID: ${docRef.id}');
+      
+      // Increment comment count on post
       await _firestore.collection('posts').doc(comment.postId).update({
         'commentCount': FieldValue.increment(1),
       });
+
+      // Get post author to send notification
+      final postDoc = await _firestore.collection('posts').doc(comment.postId).get();
+      if (postDoc.exists) {
+        final postAuthorId = postDoc.data()?['authorId'];
+        final postTitle = postDoc.data()?['title'];
+        
+        // Send notification to post author
+        if (postAuthorId != null && postAuthorId != comment.authorId) {
+          await _notificationService.createNotification(
+            userId: postAuthorId,
+            title: '💬 New Comment',
+            message: '${comment.authorName} commented on your post "$postTitle"',
+            type: 'comment',
+            postId: comment.postId,
+            commentId: docRef.id,
+            fromUserId: comment.authorId,
+            fromUserName: comment.authorName,
+          );
+        }
+      }
     } catch (e) {
+      print('❌ Error adding comment: $e');
       rethrow;
     }
   }
 
   Future<void> deleteComment(String commentId, String postId, String authorId) async {
     try {
+      print('🗑️ Deleting comment: $commentId from post: $postId');
+      
       final authService = AuthService();
       final currentUser = await authService.getCurrentUserData();
       
@@ -171,7 +244,11 @@ class FirestoreService {
         throw Exception('User not authenticated');
       }
 
-      final commentDoc = await _firestore.collection('comments').doc(commentId).get();
+      // Get comment document from ROOT collection
+      final commentDoc = await _firestore
+          .collection('comments')  // ← ROOT collection
+          .doc(commentId)
+          .get();
       
       if (!commentDoc.exists) {
         throw Exception('Comment not found');
@@ -184,13 +261,20 @@ class FirestoreService {
         throw Exception('Not authorized to delete this comment');
       }
 
-      await _firestore.collection('comments').doc(commentId).delete();
+      // Delete the comment from ROOT collection
+      await _firestore
+          .collection('comments')  // ← ROOT collection
+          .doc(commentId)
+          .delete();
       
       // Decrement comment count
       await _firestore.collection('posts').doc(postId).update({
         'commentCount': FieldValue.increment(-1),
       });
+      
+      print('✅ Comment deleted: $commentId');
     } catch (e) {
+      print('❌ Error deleting comment: $e');
       rethrow;
     }
   }
@@ -216,76 +300,81 @@ class FirestoreService {
   Future<void> votePost(String postId, String userId, bool isUpvote) async {
     try {
       final voteRef = _firestore.collection('votes').doc('${userId}_$postId');
-      final postRef = _firestore.collection('posts').doc(postId);
-      
-      // Get current post data to ensure fields exist
-      final postDoc = await postRef.get();
-      if (!postDoc.exists) {
-        throw Exception('Post not found');
-      }
-      
-      final postData = postDoc.data()!;
-      final currentUpvotes = postData['upvotes'] ?? 0;
-      final currentDownvotes = postData['downvotes'] ?? 0;
-      
       final voteDoc = await voteRef.get();
+      final postRef = _firestore.collection('posts').doc(postId);
+      final postDoc = await postRef.get();
+
+      if (!postDoc.exists) return;
+
+      final postAuthorId = postDoc.data()?['authorId'];
+      final postTitle = postDoc.data()?['title'];
+      final currentUserDoc = await _firestore.collection('users').doc(userId).get();
+      final currentUserName = currentUserDoc.data()?['displayName'] ?? 'Someone';
 
       if (voteDoc.exists) {
-        final data = voteDoc.data()!;
-        final wasUpvote = data['isUpvote'] as bool;
-
-        if (wasUpvote == isUpvote) {
-          // Remove vote - user clicked same button again
+        final currentVote = voteDoc.data()?['isUpvote'] as bool?;
+        
+        if (currentVote == isUpvote) {
+          // Remove vote
           await voteRef.delete();
-          
-          if (isUpvote) {
-            await postRef.update({
-              'upvotes': currentUpvotes > 0 ? currentUpvotes - 1 : 0,
-            });
-          } else {
-            await postRef.update({
-              'downvotes': currentDownvotes > 0 ? currentDownvotes - 1 : 0,
-            });
-          }
+          await postRef.update({
+            isUpvote ? 'upvotes' : 'downvotes': FieldValue.increment(-1),
+          });
         } else {
-          // Change vote - user clicked opposite button
-          await voteRef.update({
+          // Change vote
+          await voteRef.set({
+            'postId': postId,
+            'userId': userId,
             'isUpvote': isUpvote,
-            'updatedAt': FieldValue.serverTimestamp(),
+            'createdAt': FieldValue.serverTimestamp(),
           });
           
-          if (isUpvote) {
-            await postRef.update({
-              'upvotes': currentUpvotes + 1,
-              'downvotes': currentDownvotes > 0 ? currentDownvotes - 1 : 0,
-            });
-          } else {
-            await postRef.update({
-              'upvotes': currentUpvotes > 0 ? currentUpvotes - 1 : 0,
-              'downvotes': currentDownvotes + 1,
-            });
+          await postRef.update({
+            'upvotes': FieldValue.increment(isUpvote ? 1 : -1),
+            'downvotes': FieldValue.increment(isUpvote ? -1 : 1),
+          });
+
+          // Send notification on upvote
+          if (isUpvote && postAuthorId != null && postAuthorId != userId) {
+            await _notificationService.createNotification(
+              userId: postAuthorId,
+              title: '👍 New Upvote',
+              message: '$currentUserName upvoted your post "$postTitle"',
+              type: 'vote',
+              postId: postId,
+              fromUserId: userId,
+              fromUserName: currentUserName,
+            );
           }
         }
       } else {
         // New vote
         await voteRef.set({
-          'userId': userId,
           'postId': postId,
+          'userId': userId,
           'isUpvote': isUpvote,
           'createdAt': FieldValue.serverTimestamp(),
         });
         
-        if (isUpvote) {
-          await postRef.update({
-            'upvotes': currentUpvotes + 1,
-          });
-        } else {
-          await postRef.update({
-            'downvotes': currentDownvotes + 1,
-          });
+        await postRef.update({
+          isUpvote ? 'upvotes' : 'downvotes': FieldValue.increment(1),
+        });
+
+        // Send notification on upvote
+        if (isUpvote && postAuthorId != null && postAuthorId != userId) {
+          await _notificationService.createNotification(
+            userId: postAuthorId,
+            title: '👍 New Upvote',
+            message: '$currentUserName upvoted your post "$postTitle"',
+            type: 'vote',
+            postId: postId,
+            fromUserId: userId,
+            fromUserName: currentUserName,
+          );
         }
       }
     } catch (e) {
+      print('❌ Error voting post: $e');
       rethrow;
     }
   }
@@ -306,22 +395,73 @@ class FirestoreService {
     }
   }
 
+  Future<void> addBookmark(String postId, String userId) async {
+    try {
+      final bookmarkRef = _firestore.collection('bookmarks').doc('${userId}_$postId');
+      await bookmarkRef.set({
+        'userId': userId,
+        'postId': postId,
+        'savedAt': FieldValue.serverTimestamp(),
+      });
+      
+      // Increment saved count
+      await _firestore.collection('posts').doc(postId).update({
+        'savedCount': FieldValue.increment(1),
+      });
+      
+      print('✅ Bookmark added: $postId');
+    } catch (e) {
+      print('❌ Error adding bookmark: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> removeBookmark(String postId, String userId) async {
+    try {
+      final bookmarkRef = _firestore.collection('bookmarks').doc('${userId}_$postId');
+      await bookmarkRef.delete();
+      
+      // Decrement saved count
+      await _firestore.collection('posts').doc(postId).update({
+        'savedCount': FieldValue.increment(-1),
+      });
+      
+      print('✅ Bookmark removed: $postId');
+    } catch (e) {
+      print('❌ Error removing bookmark: $e');
+      rethrow;
+    }
+  }
+
   Future<bool> isBookmarked(String postId, String userId) async {
-    final doc = await _firestore.collection('bookmarks').doc('${userId}_$postId').get();
-    return doc.exists;
+    try {
+      final bookmarkRef = _firestore.collection('bookmarks').doc('${userId}_$postId');
+      final doc = await bookmarkRef.get();
+      return doc.exists;
+    } catch (e) {
+      print('❌ Error checking bookmark: $e');
+      return false;
+    }
   }
 
   Stream<List<PostModel>> getBookmarkedPosts(String userId) {
     return _firestore
         .collection('bookmarks')
         .where('userId', isEqualTo: userId)
+        .orderBy('savedAt', descending: true)
         .snapshots()
         .asyncMap((snapshot) async {
       List<PostModel> posts = [];
       for (var doc in snapshot.docs) {
-        final postId = doc.data()['postId'];
-        final post = await getPost(postId);
-        if (post != null) posts.add(post);
+        try {
+          final postId = doc.data()['postId'];
+          final postDoc = await _firestore.collection('posts').doc(postId).get();
+          if (postDoc.exists) {
+            posts.add(PostModel.fromFirestore(postDoc));
+          }
+        } catch (e) {
+          print('Error loading bookmarked post: $e');
+        }
       }
       return posts;
     });
@@ -396,5 +536,69 @@ class FirestoreService {
     } catch (e) {
       // Migration failed silently
     }
+  }
+
+  // Add this migration method
+  Future<void> migrateCommentsToSubcollection() async {
+    try {
+      print('🔄 Starting comment migration...');
+      
+      // Get all comments from root collection
+      final rootComments = await _firestore.collection('comments').get();
+      
+      print('📊 Found ${rootComments.docs.length} comments to migrate');
+      
+      for (var doc in rootComments.docs) {
+        final data = doc.data();
+        final postId = data['postId'];
+        
+        if (postId != null) {
+          // Copy to subcollection
+          await _firestore
+              .collection('posts')
+              .doc(postId)
+              .collection('comments')
+              .doc(doc.id)
+              .set(data);
+          
+          print('✅ Migrated comment ${doc.id} to post $postId');
+        }
+      }
+      
+      print('✅ Migration complete!');
+    } catch (e) {
+      print('❌ Migration error: $e');
+    }
+  }
+
+  // Admin functions
+  Stream<List<PostModel>> getPendingPosts({int limit = 50}) {
+    return _firestore
+        .collection('posts')
+        .where('isApproved', isEqualTo: false)
+        .where('isRejected', isEqualTo: false)
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => PostModel.fromFirestore(doc))
+          .toList();
+    });
+  }
+
+  Stream<List<PostModel>> getFeaturedPosts({int limit = 5}) {
+    return _firestore
+        .collection('posts')
+        .where('isApproved', isEqualTo: true)
+        .where('isFeatured', isEqualTo: true)
+        .orderBy('views', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => PostModel.fromFirestore(doc))
+          .toList();
+    });
   }
 }
