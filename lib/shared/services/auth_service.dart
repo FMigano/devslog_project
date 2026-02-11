@@ -1,10 +1,13 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_model.dart';
+import 'activity_log_service.dart'; // ← ADD THIS
+import '../models/activity_log_model.dart'; // ← ADD THIS
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final ActivityLogService _activityService = ActivityLogService(); // ← ADD THIS
 
   // Get auth state changes
   Stream<User?> get authStateChanges => _auth.authStateChanges();
@@ -19,8 +22,31 @@ class AuthService {
         email: email,
         password: password,
       );
+
+      // ⭐ ADD ACTIVITY LOGGING
+      final user = await getCurrentUserData();
+      if (user != null) {
+        await _activityService.logActivity(
+          userId: user.uid,
+          userName: user.displayName,
+          userEmail: user.email,
+          type: ActivityType.login,
+          description: 'User logged in',
+          status: ActivityStatus.success,
+        );
+      }
+
       return credential;
     } on FirebaseAuthException catch (e) {
+      // ⭐ LOG FAILED ATTEMPTS
+      await _activityService.logActivity(
+        userId: '',
+        userName: 'Unknown',
+        userEmail: email,
+        type: ActivityType.login,
+        description: 'Failed login attempt: ${e.code}',
+        status: ActivityStatus.failed,
+      );
       throw Exception(_getAuthErrorMessage(e.code));
     }
   }
@@ -57,7 +83,16 @@ class AuthService {
 
       await _firestore.collection('users').doc(credential.user!.uid).set(user.toFirestore());
 
-      // Send email verification
+      // ⭐ LOG REGISTRATION
+      await _activityService.logActivity(
+        userId: user.uid,
+        userName: user.displayName,
+        userEmail: user.email,
+        type: ActivityType.register,
+        description: 'New user registered',
+        status: ActivityStatus.success,
+      );
+
       await credential.user!.sendEmailVerification();
 
       return credential;
@@ -84,6 +119,19 @@ class AuthService {
 
   // Sign out
   Future<void> signOut() async {
+    // ⭐ LOG BEFORE SIGNING OUT
+    final user = await getCurrentUserData();
+    if (user != null) {
+      await _activityService.logActivity(
+        userId: user.uid,
+        userName: user.displayName,
+        userEmail: user.email,
+        type: ActivityType.logout,
+        description: 'User logged out',
+        status: ActivityStatus.success,
+      );
+    }
+
     await _auth.signOut();
   }
 

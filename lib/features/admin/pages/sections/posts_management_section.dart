@@ -10,8 +10,10 @@ import '../../widgets/empty_state_widget.dart';
 import '../../services/admin_post_service.dart';
 import '../../services/post_approval_service.dart';
 import '../../../../shared/services/auth_service.dart';
+import '../../../../shared/services/ai_summarizer_service.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:fluttertoast/fluttertoast.dart';
+import 'dart:developer' as developer;
 
 class PostsManagementSection extends StatefulWidget {
   const PostsManagementSection({super.key});
@@ -1052,5 +1054,35 @@ class _PostsManagementSectionState extends State<PostsManagementSection> {
         );
       }
     }
+  }
+
+  // Add AI categorization in the approval dialog
+  Future<void> _showApprovalDialog(PostModel post) async {
+    final aiService = AiSummarizerService();
+    final suggestedTags = await aiService.generateTopicSuggestions(
+      post.title,
+      post.content,
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Approve Post'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('AI Suggested Tags:'),
+            Wrap(
+              spacing: 8,
+              children: suggestedTags.map((tag) => Chip(label: Text(tag))).toList(),
+            ),
+            // ...existing approval UI...
+          ],
+        ),
+        actions: [
+          // ...existing actions...
+        ],
+      ),
+    );
   }
 }

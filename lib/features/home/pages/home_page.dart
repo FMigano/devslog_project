@@ -18,6 +18,10 @@ import '../../../shared/services/notification_service.dart';
 import '../../settings/pages/settings_page.dart';
 import '../../../shared/services/trending_tags_service.dart';
 import '../../../shared/services/featured_posts_service.dart';
+import '../../../shared/services/ai_summarizer_service.dart';
+import '../../posts/widgets/post_detail_modal.dart';
+import '../../search/widgets/search_modal.dart';
+import '../../posts/widgets/create_post_modal.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -29,9 +33,11 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final FirestoreService _firestoreService = FirestoreService();
   final FeaturedPostsService _featuredPostsService = FeaturedPostsService();
+  final AiSummarizerService _aiService = AiSummarizerService();
   String _selectedCategory = 'All';
   UserModel? _currentUser;
   bool _isInitializing = true;
+  bool _aiAvailable = false;
 
   @override
   void initState() {
@@ -49,6 +55,13 @@ class _HomePageState extends State<HomePage> {
     final user = await authService.getCurrentUserData();
     if (mounted) {
       setState(() => _currentUser = user);
+    }
+  }
+
+  Future<void> _checkAiAvailability() async {
+    final available = await _aiService.isAvailable();
+    if (mounted) {
+      setState(() => _aiAvailable = available);
     }
   }
 
@@ -85,12 +98,7 @@ class _HomePageState extends State<HomePage> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const CreatePostPage(),
-            ),
-          );
+          showCreatePostModal(context);
         },
         icon: const Icon(Icons.add),
         label: const Text('New Post'),
@@ -125,14 +133,39 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       actions: [
+        if (_aiAvailable)
+          Container(
+            margin: const EdgeInsets.only(right: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.purple.withOpacity(0.3), Colors.blue.withOpacity(0.3)],
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.purple.withOpacity(0.5)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.auto_awesome, size: 14, color: Colors.purple),
+                const SizedBox(width: 6),
+                Text(
+                  'AI Active',
+                  style: TextStyle(
+                    color: Colors.purple,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
         IconButton(
           icon: const Icon(Icons.search),
           onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const SearchPage()),
-            );
+            showSearchModal(context);
           },
+          tooltip: 'Search',
           color: AppTheme.darkTextSecondary,
         ),
         Stack(
@@ -639,14 +672,7 @@ class _HomePageState extends State<HomePage> {
                 child: PostCard(
                   post: posts[index],
                   onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => PostDetailPage(
-                          postId: posts[index].id,
-                        ),
-                      ),
-                    );
+                    showPostDetailModal(context, posts[index]);
                   },
                 ),
               );
@@ -705,12 +731,7 @@ class _HomePageState extends State<HomePage> {
                     
                     return InkWell(
                       onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => SearchPage(initialQuery: '#$tag'),
-                          ),
-                        );
+                        showSearchModal(context, initialQuery: '#$tag');
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -845,104 +866,72 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildFeaturedPostCard(PostModel post) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: AppTheme.darkSurfaceVariant,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.darkDivider),
         gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
           colors: [
-            AppTheme.darkSurfaceVariant,
-            AppTheme.darkSurfaceVariant.withOpacity(0.5),
+            AppTheme.darkPrimary.withOpacity(0.2),
+            AppTheme.darkSurface,
           ],
         ),
-      ),
-      child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => PostDetailPage(postId: post.id),
-            ),
-          );
-        },
         borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Post Title
-              Text(
-                post.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: AppTheme.darkTextPrimary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  height: 1.3,
-                ),
-              ),
-              const SizedBox(height: 8),
-              
-              // Author and Stats
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 10,
-                    backgroundColor: AppTheme.darkPrimary,
-                    backgroundImage: post.authorPhotoURL != null
-                        ? NetworkImage(post.authorPhotoURL!)
-                        : null,
-                    child: post.authorPhotoURL == null
-                        ? Text(
-                            post.authorName[0].toUpperCase(),
-                            style: const TextStyle(fontSize: 10),
-                          )
-                        : null,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      post.authorName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppTheme.darkTextSecondary,
-                        fontSize: 11,
+        border: Border.all(color: AppTheme.darkPrimary.withOpacity(0.3)),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            // ✅ Open as modal instead of navigation
+            showPostDetailModal(context, post);
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.star,
+                      color: AppTheme.darkPrimary,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        post.title,
+                        style: TextStyle(
+                          color: AppTheme.darkTextPrimary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  post.authorName,
+                  style: TextStyle(
+                    color: AppTheme.darkTextSecondary,
+                    fontSize: 12,
                   ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              
-              // Stats Row - FIXED to use post.views
-              Row(
-                children: [
-                  _buildStatChip(
-                    Icons.arrow_upward,
-                    post.upvotes,
-                    AppTheme.successColor,
-                  ),
-                  const SizedBox(width: 8),
-                  _buildStatChip(
-                    Icons.comment,
-                    post.commentCount,
-                    Colors.blue,
-                  ),
-                  const SizedBox(width: 8),
-                  _buildStatChip(
-                    Icons.visibility,
-                    post.views, // ← Changed from post.viewCount to post.views
-                    AppTheme.darkTextSecondary,
-                  ),
-                ],
-              ),
-            ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _buildStatChip(Icons.visibility, post.views, AppTheme.darkTextSecondary),
+                    const SizedBox(width: 8),
+                    _buildStatChip(Icons.arrow_upward, post.upvotes, Colors.green),
+                    const SizedBox(width: 8),
+                    _buildStatChip(Icons.comment, post.commentCount, Colors.blue),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

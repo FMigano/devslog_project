@@ -123,4 +123,30 @@ class CommentReplyService {
       return 0;
     }
   }
+
+  // Add this method (it's missing!)
+  Stream<List<ReplyModel>> getReplyStream(String postId, String commentId) {
+    print('📥 Getting replies stream for comment: $commentId');
+    
+    return _firestore
+        .collection('comments')
+        .doc(commentId)
+        .collection('replies')
+        .orderBy('createdAt', descending: false)
+        .snapshots()
+        .map((snapshot) {
+      print('📊 Replies snapshot size: ${snapshot.docs.length}');
+      
+      return snapshot.docs.map((doc) {
+        try {
+          return ReplyModel.fromFirestore(doc);
+        } catch (e) {
+          print('❌ Error parsing reply ${doc.id}: $e');
+          return null;
+        }
+      })
+      .whereType<ReplyModel>()
+      .toList();
+    });
+  }
 }

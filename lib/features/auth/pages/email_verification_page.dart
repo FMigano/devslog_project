@@ -4,7 +4,7 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'dart:async';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/services/auth_service.dart';
-import 'otp_verification_page.dart';
+import '../../home/pages/home_page.dart'; // Add this import
 
 class EmailVerificationPage extends StatefulWidget {
   const EmailVerificationPage({super.key});
@@ -50,10 +50,16 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
       
       if (authService.currentUser?.emailVerified ?? false) {
         if (mounted) {
-          // Navigate to OTP verification
-          Navigator.pushReplacement(
+          Fluttertoast.showToast(
+            msg: '✅ Email verified successfully!',
+            backgroundColor: AppTheme.successColor,
+          );
+          
+          // Navigate directly to home page instead of login
+          Navigator.pushAndRemoveUntil(
             context,
-            MaterialPageRoute(builder: (_) => const OTPVerificationPage()),
+            MaterialPageRoute(builder: (_) => const HomePage()),
+            (route) => false,
           );
         }
       } else {

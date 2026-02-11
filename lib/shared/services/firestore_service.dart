@@ -2,12 +2,15 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/post_model.dart';
 import '../models/comment_model.dart';
 import '../models/user_model.dart';
+import '../models/activity_log_model.dart';
 import 'auth_service.dart';
 import 'notification_service.dart';
+import 'activity_log_service.dart';
 
 class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final NotificationService _notificationService = NotificationService();
+  final ActivityLogService _activityService = ActivityLogService(); // ← ADD THIS
 
   // Posts
   Stream<List<PostModel>> getPosts({String? category, int limit = 20}) {
@@ -67,26 +70,18 @@ class FirestoreService {
 
   Future<String> createPost(PostModel post) async {
     try {
-      print('FirestoreService: Creating post...');
+      final docRef = await _firestore.collection('posts').add(post.toMap());
       
-      final postData = post.toFirestore();
-      print('FirestoreService: Post data prepared');
-      print('FirestoreService: Category = ${postData['category']}');
-      
-      if (!postData.containsKey('category') || postData['category'] == null || postData['category'].toString().isEmpty) {
-        postData['category'] = 'General';
-        print('FirestoreService: Category set to General');
-      }
-      
-      print('FirestoreService: Adding to Firestore...');
-      final docRef = await _firestore.collection('posts').add(postData);
-      print('FirestoreService: Post added with ID: ${docRef.id}');
-      
-      print('FirestoreService: Updating user post count...');
-      await _firestore.collection('users').doc(post.authorId).update({
-        'postCount': FieldValue.increment(1),
-      });
-      print('FirestoreService: User post count updated');
+      // ⭐ LOG POST CREATION
+      await _activityService.logActivity(
+        userId: post.authorId,
+        userName: post.authorName,
+        userEmail: post.authorEmail,
+        type: ActivityType.postCreated,
+        description: 'Created post: ${post.title}',
+        metadata: {'postId': docRef.id},
+        status: ActivityStatus.success,
+      );
       
       return docRef.id;
     } catch (e, stackTrace) {
@@ -106,52 +101,22 @@ class FirestoreService {
 
   Future<void> deletePost(String postId) async {
     try {
-      print('🗑️ Deleting post: $postId');
+      final postDoc = await _firestore.collection('posts').doc(postId).get();
+      final post = PostModel.fromFirestore(postDoc);
       
-      // Delete all comments for this post
-      final commentsSnapshot = await _firestore
-          .collection('comments')
-          .where('postId', isEqualTo: postId)
-          .get();
-      
-      for (var doc in commentsSnapshot.docs) {
-        // Delete all replies for each comment
-        final repliesSnapshot = await _firestore
-            .collection('comments')
-            .doc(doc.id)
-            .collection('replies')
-            .get();
-        
-        for (var replyDoc in repliesSnapshot.docs) {
-          await replyDoc.reference.delete();
-        }
-        
-        // Delete the comment
-        await doc.reference.delete();
-      }
-      
-      // Delete all votes for this post
-      final votesSnapshot = await _firestore
-          .collection('votes')
-          .where('postId', isEqualTo: postId)
-          .get();
-      
-      for (var doc in votesSnapshot.docs) {
-        await doc.reference.delete();
-      }
-      
-      // Delete all bookmarks for this post
-      final bookmarksSnapshot = await _firestore
-          .collection('bookmarks')
-          .where('postId', isEqualTo: postId)
-          .get();
-      
-      for (var doc in bookmarksSnapshot.docs) {
-        await doc.reference.delete();
-      }
-      
-      // Finally, delete the post itself
+      // Delete post...
       await _firestore.collection('posts').doc(postId).delete();
+      
+      // ⭐ LOG POST DELETION
+      await _activityService.logActivity(
+        userId: post.authorId,
+        userName: post.authorName,
+        userEmail: post.authorEmail,
+        type: ActivityType.postDeleted,
+        description: 'Deleted post: ${post.title}',
+        metadata: {'postId': postId},
+        status: ActivityStatus.success,
+      );
       
       print('✅ Post and all related data deleted');
     } catch (e) {

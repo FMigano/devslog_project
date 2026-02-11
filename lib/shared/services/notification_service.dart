@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'ai_summarizer_service.dart';
 
 class NotificationModel {
   final String id;
@@ -66,6 +67,7 @@ class NotificationModel {
 
 class NotificationService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final AiSummarizerService _aiService = AiSummarizerService();
 
   // ⭐ FIXED: Simple query without compound index
   Stream<List<NotificationModel>> getNotifications(String userId) {
@@ -189,6 +191,109 @@ class NotificationService {
       await batch.commit();
     } catch (e) {
       print('❌ Error deleting all notifications: $e');
+    }
+  }
+
+  // Send smart notification
+  Future<void> sendSmartNotification({
+    required String userId,
+    required String type,
+    required String title,
+    required String message,
+    required String postId,
+    String? commentId,
+    String? fromUserId,
+    String? fromUserName,
+  }) async {
+    try {
+      // Get user preferences
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      final userPreferences = userDoc.data()?['preferences'] ?? {};
+      
+      // Use AI to prioritize notification
+      final prioritization = await _aiService.prioritizeNotification(
+        type,
+        message,
+        userPreferences,
+      );
+      
+      final priority = prioritization['priority'] as String;
+      final shouldNotify = prioritization['shouldNotify'] as bool;
+      final reason = prioritization['reason'] as String;
+      
+      print('🔔 Notification priority: $priority (Reason: $reason)');
+      
+      // Only send if AI says we should
+      if (!shouldNotify) {
+        print('⏭️ Skipping notification based on AI prioritization');
+        return;
+      }
+      
+      // Create notification with priority
+      await _firestore.collection('notifications').add({
+        'userId': userId,
+        'type': type,
+        'title': title,
+        'message': message,
+        'postId': postId,
+        'commentId': commentId,
+        'fromUserId': fromUserId,
+        'fromUserName': fromUserName,
+        'priority': priority, // high, medium, low
+        'reason': reason,
+        'isRead': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      
+      print('✅ Smart notification sent with $priority priority');
+    } catch (e) {
+      print('❌ Error sending smart notification: $e');
+      // Fallback to regular notification
+      await sendNotification(
+        userId: userId,
+        type: type,
+        title: title,
+        message: message,
+        postId: postId,
+        commentId: commentId,
+        fromUserId: fromUserId,
+        fromUserName: fromUserName,
+      );
+    }
+  }
+
+  Future<void> sendNotification({
+    required String userId,
+    required String type,
+    required String title,
+    required String message,
+    required String postId,
+    String? commentId,
+    String? fromUserId,
+    String? fromUserName,
+  }) async {
+    try {
+      // Don't send notification to yourself
+      if (userId == fromUserId) return;
+
+      final notification = NotificationModel(
+        id: '',
+        userId: userId,
+        title: title,
+        message: message,
+        type: type,
+        postId: postId,
+        commentId: commentId,
+        fromUserId: fromUserId,
+        fromUserName: fromUserName,
+        createdAt: DateTime.now(),
+        data: {},
+      );
+
+      await _firestore.collection('notifications').add(notification.toFirestore());
+      print('✅ Notification created for user: $userId - $title');
+    } catch (e) {
+      print('❌ Error creating notification: $e');
     }
   }
 }

@@ -4,6 +4,10 @@ import '../../../core/theme/app_theme.dart';
 import '../../../shared/models/post_model.dart';
 import '../../../shared/widgets/post_card.dart';
 import '../../posts/pages/post_detail_page.dart';
+import 'dart:developer' as logger;
+import '../../../shared/services/ai_summarizer_service.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class SearchPage extends StatefulWidget {
   final String? initialQuery;
@@ -19,6 +23,9 @@ class _SearchPageState extends State<SearchPage> {
   List<PostModel> _searchResults = [];
   bool _isSearching = false;
   String _searchType = 'title'; // title, tags, author
+  final AiSummarizerService _aiService = AiSummarizerService();
+  List<String> _aiSuggestions = [];
+  bool _showAiSuggestions = false;
 
   @override
   void initState() {
@@ -122,6 +129,28 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
+  Future<void> _generateAiSuggestions(String query) async {
+    if (query.length < 3) {
+      setState(() {
+        _aiSuggestions = [];
+        _showAiSuggestions = false;
+      });
+      return;
+    }
+    
+    try {
+      final suggestions = await _aiService.generateSearchSuggestions(query);
+      if (mounted && suggestions.isNotEmpty) {
+        setState(() {
+          _aiSuggestions = suggestions;
+          _showAiSuggestions = true;
+        });
+      }
+    } catch (e) {
+      print('AI suggestions error: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -166,7 +195,18 @@ class _SearchPageState extends State<SearchPage> {
                       borderSide: BorderSide(color: AppTheme.darkPrimary, width: 2),
                     ),
                   ),
-                  onChanged: _performSearch,
+                  onChanged: (value) {
+                    if (value.length > 2) {
+                      _performSearch(value);
+                      _generateAiSuggestions(value);
+                    } else {
+                      setState(() {
+                        _searchResults = [];
+                        _aiSuggestions = [];
+                        _showAiSuggestions = false;
+                      });
+                    }
+                  },
                   textInputAction: TextInputAction.search,
                   onSubmitted: _performSearch,
                 ),
@@ -343,4 +383,117 @@ class _SearchPageState extends State<SearchPage> {
       pressElevation: 4,
     );
   }
+
+  Widget _buildAiSuggestionsChips() {
+    if (_aiSuggestions.isEmpty) return const SizedBox();
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.auto_awesome, size: 16, color: Colors.purple),
+              const SizedBox(width: 8),
+              Text(
+                'AI Suggestions',
+                style: TextStyle(
+                  color: AppTheme.darkTextSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _aiSuggestions.map((suggestion) {
+              return ActionChip(
+                label: Text(suggestion),
+                avatar: Icon(Icons.search, size: 16),
+                onPressed: () {
+                  _searchController.text = suggestion;
+                  _performSearch(suggestion);
+                },
+                backgroundColor: Colors.purple.withOpacity(0.1),
+                labelStyle: TextStyle(color: Colors.purple),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> main() async {
+  print('🔍 Testing Ollama AI Features...\n');
+  
+  // Test 1: Connection
+  print('1️⃣ Testing connection...');
+  try {
+    final response = await http.get(
+      Uri.parse('http://localhost:11434/api/tags'),
+    ).timeout(Duration(seconds: 5));
+    
+    if (response.statusCode == 200) {
+      print('✅ Ollama is running!');
+      final models = jsonDecode(response.body)['models'];
+      print('Available models: ${models.map((m) => m['name']).join(', ')}');
+    }
+  } catch (e) {
+    print('❌ Connection failed: $e');
+    print('Make sure Ollama is running: ollama serve');
+    return;
+  }
+  
+  // Test 2: Tag generation
+  print('\n2️⃣ Testing tag generation...');
+  try {
+    final response = await http.post(
+      Uri.parse('http://localhost:11434/api/generate'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'model': 'llama3.2',
+        'prompt': '''Suggest 5 tags for this post: "Building a Flutter app with Firebase authentication"
+Return only comma-separated tags:''',
+        'stream': false,
+      }),
+    ).timeout(Duration(seconds: 30));
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      print('✅ Generated tags: ${data['response']}');
+    }
+  } catch (e) {
+    print('❌ Tag generation failed: $e');
+  }
+  
+  // Test 3: Summary generation
+  print('\n3️⃣ Testing summary generation...');
+  try {
+    final response = await http.post(
+      Uri.parse('http://localhost:11434/api/generate'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'model': 'llama3.2',
+        'prompt': '''Summarize in 2 sentences: "Flutter is Google's UI toolkit for building natively compiled applications for mobile, web, and desktop from a single codebase."
+
+Summary:''',
+        'stream': false,
+      }),
+    ).timeout(Duration(seconds: 30));
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      print('✅ Summary: ${data['response']}');
+    }
+  } catch (e) {
+    print('❌ Summary generation failed: $e');
+  }
+  
+  print('\n✨ Testing complete!');
 }

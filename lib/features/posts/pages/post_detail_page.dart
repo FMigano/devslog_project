@@ -4,6 +4,7 @@ import 'package:timeago/timeago.dart' as timeago;
 import 'package:flutter_widget_from_html/flutter_widget_from_html.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/models/post_model.dart';
 import '../../../shared/models/comment_model.dart';
@@ -11,6 +12,7 @@ import '../../../shared/models/reply_model.dart';
 import '../../../shared/services/auth_service.dart';
 import '../../../shared/services/firestore_service.dart';
 import '../../../shared/services/comment_reply_service.dart';
+import '../../../shared/services/ai_summarizer_service.dart';
 import '../../../shared/widgets/loading_widget.dart';
 
 class PostDetailPage extends StatefulWidget {
@@ -31,6 +33,14 @@ class _PostDetailPageState extends State<PostDetailPage> {
   bool _isVoting = false;
   String? _replyingToCommentId; // Which comment is being replied to
   final Map<String, bool> _expandedReplies = {}; // Which comment's replies are visible
+  final AiSummarizerService _aiService = AiSummarizerService();
+  List<String> _commentSuggestions = [];
+  bool _showCommentSuggestions = false;
+  bool _loadingCommentSuggestions = false;
+  final Map<String, bool> _commentLoadingStates = {};
+  final Map<String, bool> _showReplyStates = {};
+  final Map<String, List<String>> _aiSuggestionsCache = {};
+  bool _aiAvailable = true; // Track if AI features are available
 
   @override
   void initState() {
@@ -139,6 +149,158 @@ class _PostDetailPageState extends State<PostDetailPage> {
       _replyControllers[commentId] = TextEditingController();
     }
     return _replyControllers[commentId]!;
+  }
+
+  Future<void> _generateCommentSuggestions(PostModel post) async {
+    setState(() => _loadingCommentSuggestions = true);
+    
+    try {
+      final suggestions = await _aiService.generateCommentSuggestions(
+        post.title,
+        post.content,
+      );
+      
+      if (mounted && suggestions.isNotEmpty) {
+        setState(() {
+          _commentSuggestions = suggestions;
+          _showCommentSuggestions = true;
+        });
+        
+        Fluttertoast.showToast(
+          msg: '✨ AI generated comment ideas!',
+          backgroundColor: Colors.purple,
+        );
+      }
+    } catch (e) {
+      print('Error generating comment suggestions: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _loadingCommentSuggestions = false);
+      }
+    }
+  }
+
+  Widget _buildCommentSuggestionsButton(PostModel post) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: ElevatedButton.icon(
+        onPressed: _loadingCommentSuggestions ? null : () => _generateCommentSuggestions(post),
+        icon: _loadingCommentSuggestions
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              )
+            : const Icon(Icons.auto_awesome, size: 18),
+        label: Text(_loadingCommentSuggestions ? 'Generating...' : 'Get AI Comment Ideas'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.purple,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCommentSuggestionsCard() {
+    if (!_showCommentSuggestions || _commentSuggestions.isEmpty) {
+      return const SizedBox();
+    }
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.purple.withOpacity(0.1),
+            Colors.purple.withOpacity(0.05),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.purple.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.lightbulb, color: Colors.amber, size: 20),
+              const SizedBox(width: 8),
+              const Text(
+                'AI Comment Suggestions',
+                style: TextStyle(
+                  color: Colors.purple,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () => setState(() => _showCommentSuggestions = false),
+                color: AppTheme.darkTextSecondary,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ..._commentSuggestions.asMap().entries.map((entry) {
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: InkWell(
+                onTap: () {
+                  _commentController.text = entry.value;
+                  setState(() => _showCommentSuggestions = false);
+                  Fluttertoast.showToast(
+                    msg: '📝 Comment template added',
+                    backgroundColor: AppTheme.successColor,
+                  );
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.darkSurfaceVariant,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppTheme.darkDivider),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.purple.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '${entry.key + 1}',
+                          style: const TextStyle(
+                            color: Colors.purple,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          entry.value,
+                          style: const TextStyle(
+                            color: AppTheme.darkTextPrimary,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      const Icon(Icons.arrow_forward, size: 16, color: Colors.purple),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ],
+      ),
+    );
   }
 
   @override
@@ -582,7 +744,23 @@ class _PostDetailPageState extends State<PostDetailPage> {
                 ),
           ),
           const SizedBox(height: 16),
-          if (currentUser != null) _buildCommentInput(currentUser),
+          if (currentUser != null) ...[
+            StreamBuilder<PostModel?>(
+              stream: FirestoreService().getPostStream(widget.postId),
+              builder: (context, postSnapshot) {
+                if (postSnapshot.hasData) {
+                  return Column(
+                    children: [
+                      _buildCommentSuggestionsButton(postSnapshot.data!),
+                      _buildCommentSuggestionsCard(),
+                    ],
+                  );
+                }
+                return const SizedBox();
+              },
+            ),
+            _buildCommentInput(currentUser),
+          ],
           const SizedBox(height: 20),
           StreamBuilder<List<CommentModel>>(
             stream: FirestoreService().getComments(widget.postId),
@@ -608,7 +786,7 @@ class _PostDetailPageState extends State<PostDetailPage> {
                     padding: const EdgeInsets.all(32),
                     child: Text(
                       'Error loading comments: ${snapshot.error}',
-                      style: TextStyle(color: AppTheme.errorColor),
+                      style: TextStyle(color: AppTheme.errorColor, fontSize: 12),
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -685,149 +863,289 @@ class _PostDetailPageState extends State<PostDetailPage> {
     );
   }
 
-  Widget _buildCommentCard(CommentModel comment, dynamic currentUser) {
-    final isAuthor = currentUser?.uid == comment.authorId;
-    final isReplying = _replyingToCommentId == comment.id;
-    final isExpanded = _expandedReplies[comment.id] ?? false;
+  Widget _buildCommentCard(CommentModel comment, User? currentUser) {
+    // Initialize state ONCE per comment
+    _commentLoadingStates[comment.id] ??= false;
+    _showReplyStates[comment.id] ??= false;
+    _aiSuggestionsCache[comment.id] ??= [];
+    _replyControllers[comment.id] ??= TextEditingController();
 
-    return Card(
-      color: AppTheme.darkSurface,
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Comment Header
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 16,
-                  backgroundColor: AppTheme.darkPrimary,
-                  child: Text(
-                    comment.authorName[0].toUpperCase(),
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
+    return StatefulBuilder(
+      builder: (BuildContext context, StateSetter setCommentState) {
+        final isLoadingAI = _commentLoadingStates[comment.id] ?? false;
+        final showReply = _showReplyStates[comment.id] ?? false;
+        final aiSuggestions = _aiSuggestionsCache[comment.id] ?? [];
+        final replyController = _replyControllers[comment.id]!;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppTheme.darkSurface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.darkDivider),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Comment header
+              Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: AppTheme.darkPrimary,
+                    child: Text(
+                      comment.authorName[0].toUpperCase(),
+                      style: const TextStyle(color: Colors.white),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        comment.authorName,
-                        style: TextStyle(
-                          color: AppTheme.darkTextPrimary,
-                          fontWeight: FontWeight.w600,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          comment.authorName,
+                          style: TextStyle(
+                            color: AppTheme.darkTextPrimary,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                      Text(
-                        timeago.format(comment.createdAt),
-                        style: TextStyle(
-                          color: AppTheme.darkTextSecondary,
-                          fontSize: 12,
+                        Text(
+                          timeago.format(comment.createdAt),
+                          style: TextStyle(
+                            color: AppTheme.darkTextSecondary,
+                            fontSize: 12,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                if (isAuthor)
-                  IconButton(
-                    icon: const Icon(Icons.delete, size: 20),
-                    color: Colors.red,
-                    onPressed: () => _deleteComment(comment.id),
+                  if (currentUser?.uid == comment.authorId)
+                    IconButton(
+                      icon: Icon(Icons.delete, color: AppTheme.errorColor),
+                      onPressed: () => _deleteComment(comment.id),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              
+              // Comment content
+              Text(
+                comment.content,
+                style: TextStyle(color: AppTheme.darkTextPrimary),
+              ),
+              
+              const SizedBox(height: 12),
+              
+              // Action buttons
+              Row(
+                children: [
+                  // Reply button
+                  TextButton.icon(
+                    onPressed: () {
+                      // ✅ Update ONLY this comment's state
+                      setCommentState(() {
+                        _showReplyStates[comment.id] = !showReply;
+                      });
+                    },
+                    icon: Icon(
+                      showReply ? Icons.expand_less : Icons.reply,
+                      size: 18,
+                    ),
+                    label: Text(showReply ? 'Hide Reply' : 'Reply'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.darkPrimary,
+                    ),
                   ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            
-            // Comment Content
-            Text(
-              comment.content,
-              style: TextStyle(color: AppTheme.darkTextPrimary),
-            ),
-            const SizedBox(height: 8),
-            
-            // Action Buttons with REAL-TIME reply count
-            Row(
-              children: [
-                // Reply Button
-                TextButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _replyingToCommentId = isReplying ? null : comment.id;
-                    });
-                  },
-                  icon: Icon(
-                    Icons.reply,
-                    size: 16,
-                    color: AppTheme.darkPrimary,
-                  ),
-                  label: Text(
-                    'Reply',
-                    style: TextStyle(color: AppTheme.darkPrimary),
-                  ),
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    minimumSize: const Size(0, 30),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                
-                // Show Replies Button with REAL-TIME count
-                StreamBuilder<List<ReplyModel>>(
-                  stream: _replyService.getRepliesStream(widget.postId, comment.id),
-                  builder: (context, snapshot) {
-                    final replyCount = snapshot.data?.length ?? 0;
-                    
-                    if (replyCount == 0) return const SizedBox();
-                    
-                    return TextButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _expandedReplies[comment.id] = !isExpanded;
-                        });
-                      },
-                      icon: Icon(
-                        isExpanded ? Icons.expand_less : Icons.expand_more,
-                        size: 16,
-                        color: AppTheme.darkTextSecondary,
-                      ),
-                      label: Text(
-                        '$replyCount ${replyCount == 1 ? 'reply' : 'replies'}',
-                        style: TextStyle(color: AppTheme.darkTextSecondary),
-                      ),
+                  
+                  const SizedBox(width: 8),
+                  
+                  // AI suggestions button
+                  if (_aiAvailable && showReply)
+                    TextButton.icon(
+                      onPressed: isLoadingAI 
+                          ? null 
+                          : () => _getAIReplySuggestionsLocal(
+                              comment.id, 
+                              comment.content, 
+                              setCommentState,
+                            ),
+                      icon: isLoadingAI
+                          ? SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation(AppTheme.darkPrimary),
+                              ),
+                            )
+                          : const Icon(Icons.auto_awesome, size: 18),
+                      label: Text(isLoadingAI ? 'Thinking...' : 'AI Ideas'),
                       style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: const Size(0, 30),
+                        foregroundColor: Colors.purple,
                       ),
-                    );
-                  },
+                    ),
+                ],
+              ),
+              
+              // Reply input
+              if (showReply) ...[
+                const SizedBox(height: 12),
+                
+                // AI suggestions chips (NO animation, instant show)
+                if (aiSuggestions.isNotEmpty) ...[
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: aiSuggestions.map((suggestion) {
+                      return ActionChip(
+                        label: Text(
+                          suggestion,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        backgroundColor: AppTheme.darkSurface,
+                        side: BorderSide(color: AppTheme.darkPrimary),
+                        onPressed: () {
+                          replyController.text = suggestion;
+                        },
+                      );
+                    }).toList(),
                 ),
+                const SizedBox(height: 12),
               ],
-            ),
-            
-            // Reply Input
-            if (isReplying) ...[
-              const SizedBox(height: 12),
-              _buildReplyInput(comment.id, currentUser),
+              
+              // Reply text field
+              TextField(
+                controller: replyController,
+                style: TextStyle(color: AppTheme.darkTextPrimary),
+                decoration: InputDecoration(
+                  hintText: 'Write a reply...',
+                  hintStyle: TextStyle(color: AppTheme.darkTextSecondary),
+                  filled: true,
+                  fillColor: AppTheme.darkBackground,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: AppTheme.darkDivider),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: AppTheme.darkDivider),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: AppTheme.darkPrimary),
+                  ),
+                  suffixIcon: IconButton(
+                    icon: Icon(Icons.send, color: AppTheme.darkPrimary),
+                    onPressed: () => _submitReply(comment.id, replyController),
+                  ),
+                ),
+                maxLines: 3,
+              ),
             ],
             
-            // Replies List with REAL-TIME updates
-            if (isExpanded) ...[
-              const SizedBox(height: 12),
-              _buildRepliesList(comment.id, currentUser),
+              // Replies section
+              StreamBuilder<List<ReplyModel>>(
+                stream: _replyService.getRepliesStream(widget.postId, comment.id),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+  
+                  return Padding(
+                    padding: const EdgeInsets.only(left: 40, top: 12),
+                    child: Column(
+                      children: snapshot.data!.map((reply) {
+                        return _buildReplyCard(reply, currentUser);
+                      }).toList(),
+                    ),
+                  );
+                },
+              ),
             ],
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildReplyInput(String commentId, dynamic currentUser) {
-    final controller = _getReplyController(commentId);
+  // ✅ Updated method with local state setter
+  Future<void> _getAIReplySuggestionsLocal(
+    String commentId, 
+    String commentText,
+    StateSetter setCommentState,
+  ) async {
+    // Update loading state LOCALLY
+    setCommentState(() {
+      _commentLoadingStates[commentId] = true;
+    });
 
+    try {
+      final suggestions = await _aiService.generateCommentSuggestions(
+        'Reply to: $commentText',
+        commentText,
+      );
+      
+      // Update suggestions LOCALLY (no full rebuild)
+      setCommentState(() {
+        _aiSuggestionsCache[commentId] = suggestions;
+        _commentLoadingStates[commentId] = false;
+      });
+      
+      if (suggestions.isEmpty) {
+        _showToast('No suggestions available', Colors.orange);
+      }
+    } catch (e) {
+      setCommentState(() {
+        _commentLoadingStates[commentId] = false;
+      });
+      _showToast('AI error: $e', AppTheme.errorColor);
+    }
+  }
+
+  // ✅ Submit reply
+  Future<void> _submitReply(String commentId, TextEditingController controller) async {
+    if (controller.text.trim().isEmpty) return;
+
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final user = await authService.getCurrentUserData();
+      
+      if (user == null) return;
+
+      final reply = ReplyModel(
+        id: '',
+        commentId: commentId,
+        postId: widget.postId,
+        content: controller.text.trim(),
+        authorId: user.uid,
+        authorName: user.displayName,
+        authorEmail: user.email,
+        createdAt: DateTime.now(),
+      );
+
+      await _replyService.addReply(
+        postId: widget.postId,
+        commentId: commentId,
+        reply: reply,
+      );
+      
+      // Clear controller and hide reply section
+      controller.clear();
+      setState(() {
+        _showReplyStates[commentId] = false;
+        _aiSuggestionsCache[commentId] = []; // Clear suggestions
+      });
+      
+      _showToast('Reply posted!', AppTheme.successColor);
+    } catch (e) {
+      _showToast('Error posting reply', AppTheme.errorColor);
+    }
+  }
+
+  Widget _buildReplyCard(ReplyModel reply, User? currentUser) {
     return Container(
+      margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppTheme.darkBackground,
@@ -835,302 +1153,88 @@ class _PostDetailPageState extends State<PostDetailPage> {
         border: Border.all(color: AppTheme.darkDivider),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextField(
-            controller: controller,
-            style: TextStyle(color: AppTheme.darkTextPrimary),
-            decoration: InputDecoration(
-              hintText: 'Write a reply...',
-              hintStyle: TextStyle(color: AppTheme.darkTextSecondary),
-              border: InputBorder.none,
-              isDense: true,
-            ),
-            maxLines: 3,
-            minLines: 2,
-            autofocus: true,
-          ),
-          const SizedBox(height: 8),
           Row(
-            mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              TextButton(
-                onPressed: () {
-                  setState(() {
-                    _replyingToCommentId = null;
-                    controller.clear();
-                  });
-                },
+              CircleAvatar(
+                radius: 12,
+                backgroundColor: AppTheme.darkPrimary,
                 child: Text(
-                  'Cancel',
-                  style: TextStyle(color: AppTheme.darkTextSecondary),
+                  reply.authorName[0].toUpperCase(),
+                  style: const TextStyle(color: Colors.white, fontSize: 10),
                 ),
               ),
               const SizedBox(width: 8),
-              ValueListenableBuilder<TextEditingValue>(
-                valueListenable: controller,
-                builder: (context, value, child) {
-                  return ElevatedButton.icon(
-                    onPressed: value.text.trim().isEmpty 
-                        ? null 
-                        : () => _submitReply(commentId, controller),
-                    icon: const Icon(Icons.send, size: 16),
-                    label: const Text('Reply'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.darkPrimary,
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: AppTheme.darkSurfaceVariant,
-                      disabledForegroundColor: AppTheme.darkTextSecondary,
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRepliesList(String commentId, dynamic currentUser) {
-    return StreamBuilder<List<ReplyModel>>(
-      stream: _replyService.getRepliesStream(widget.postId, commentId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: CircularProgressIndicator(
-                color: AppTheme.darkPrimary,
-                strokeWidth: 2,
-              ),
-            ),
-          );
-        }
-
-        if (snapshot.hasError) {
-          return Container(
-            margin: const EdgeInsets.only(left: 16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppTheme.darkBackground,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              'Error loading replies: ${snapshot.error}',
-              style: TextStyle(color: AppTheme.errorColor, fontSize: 12),
-            ),
-          );
-        }
-
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return Container(
-            margin: const EdgeInsets.only(left: 16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppTheme.darkBackground,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              'No replies yet',
-              style: TextStyle(
-                color: AppTheme.darkTextSecondary,
-                fontSize: 12,
-              ),
-            ),
-          );
-        }
-
-        final replies = snapshot.data!;
-        
-        return Container(
-          margin: const EdgeInsets.only(left: 16),
-          padding: const EdgeInsets.only(left: 12),
-          decoration: BoxDecoration(
-            border: Border(
-              left: BorderSide(
-                color: AppTheme.darkDivider,
-                width: 2,
-              ),
-            ),
-          ),
-          child: Column(
-            children: replies.map((reply) {
-              final isAuthor = currentUser?.uid == reply.authorId;
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.darkBackground,
-                  borderRadius: BorderRadius.circular(8),
-                ),
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 12,
-                          backgroundColor: AppTheme.darkPrimary,
-                          child: Text(
-                            reply.authorName[0].toUpperCase(),
-                            style: const TextStyle(color: Colors.white, fontSize: 10),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                reply.authorName,
-                                style: TextStyle(
-                                  color: AppTheme.darkTextPrimary,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              Text(
-                                timeago.format(reply.createdAt),
-                                style: TextStyle(
-                                  color: AppTheme.darkTextSecondary,
-                                  fontSize: 10,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (isAuthor || currentUser?.isAdmin == true)
-                          IconButton(
-                            icon: const Icon(Icons.delete, size: 16),
-                            color: Colors.red,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            onPressed: () => _deleteReply(commentId, reply.id, reply.authorId),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
                     Text(
-                      reply.content,
+                      reply.authorName,
                       style: TextStyle(
                         color: AppTheme.darkTextPrimary,
+                        fontWeight: FontWeight.bold,
                         fontSize: 13,
+                      ),
+                    ),
+                    Text(
+                      timeago.format(reply.createdAt),
+                      style: TextStyle(
+                        color: AppTheme.darkTextSecondary,
+                        fontSize: 10,
                       ),
                     ),
                   ],
                 ),
-              );
-            }).toList(),
+              ),
+              if (currentUser?.uid == reply.authorId)
+                IconButton(
+                  icon: Icon(Icons.delete, color: AppTheme.errorColor, size: 18),
+                  onPressed: () => _deleteReply(reply.id, reply.commentId),
+                ),
+            ],
           ),
-        );
-      },
-    );
-  }
-
-  Future<void> _submitReply(String commentId, TextEditingController controller) async {
-    if (controller.text.trim().isEmpty) return;
-
-    final replyContent = controller.text.trim();
-
-    try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final user = await authService.getCurrentUserData();
-
-      if (user == null) {
-        throw Exception('User not found');
-      }
-
-      final reply = ReplyModel(
-        id: '',
-        postId: widget.postId,
-        commentId: commentId,
-        authorId: user.uid,
-        authorName: user.displayName,
-        authorEmail: user.email,
-        content: replyContent,
-        createdAt: DateTime.now(),
-      );
-
-      // Send to Firestore
-      await _replyService.addReply(
-        postId: widget.postId,
-        commentId: commentId,
-        reply: reply,
-      );
-
-      // Clear and hide reply box AFTER successful send
-      if (mounted) {
-        controller.clear();
-        setState(() {
-          _replyingToCommentId = null;
-          _expandedReplies[commentId] = true; // Auto-expand to show new reply
-        });
-
-        Fluttertoast.showToast(
-          msg: '✅ Reply added',
-          backgroundColor: AppTheme.successColor,
-        );
-      }
-    } catch (e) {
-      print('❌ Error adding reply: $e');
-      if (mounted) {
-        Fluttertoast.showToast(
-          msg: '❌ Failed to add reply: $e',
-          backgroundColor: AppTheme.errorColor,
-        );
-      }
-    }
-  }
-
-  Future<void> _deleteReply(String commentId, String replyId, String authorId) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppTheme.darkSurface,
-        title: Text('Delete Reply', style: TextStyle(color: AppTheme.darkTextPrimary)),
-        content: Text(
-          'Are you sure you want to delete this reply?',
-          style: TextStyle(color: AppTheme.darkTextPrimary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text('Cancel', style: TextStyle(color: AppTheme.darkTextSecondary)),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete'),
+          const SizedBox(height: 8),
+          Text(
+            reply.content,
+            style: TextStyle(color: AppTheme.darkTextPrimary, fontSize: 13),
           ),
         ],
       ),
     );
+  }
 
-    if (confirm == true) {
-      try {
-        await _replyService.deleteReply(
-          postId: widget.postId,
-          commentId: commentId,
-          replyId: replyId,
-          authorId: authorId,
-        );
-
-        if (mounted) {
-          Fluttertoast.showToast(
-            msg: '✅ Reply deleted',
-            backgroundColor: AppTheme.successColor,
-          );
-        }
-      } catch (e) {
-        print('❌ Error deleting reply: $e');
-        if (mounted) {
-          Fluttertoast.showToast(
-            msg: '❌ Failed to delete reply: $e',
-            backgroundColor: AppTheme.errorColor,
-          );
-        }
+  Future<void> _deleteReply(String replyId, String commentId) async {
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final userId = authService.currentUser?.uid;
+      
+      if (userId == null) {
+        _showToast('User not authenticated', AppTheme.errorColor);
+        return;
       }
+      
+      await _replyService.deleteReply(
+        postId: widget.postId,
+        commentId: commentId,
+        replyId: replyId,
+        authorId: userId,
+      );
+      _showToast('Reply deleted', AppTheme.successColor);
+    } catch (e) {
+      _showToast('Error deleting reply', AppTheme.errorColor);
     }
+  }
+
+  void _showToast(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   Future<void> _submitComment() async {

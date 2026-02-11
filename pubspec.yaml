@@ -80,6 +80,9 @@ dependencies:
   # Notifications
   flutter_local_notifications: ^18.0.1
   image: ^4.1.7
+  
+  # Mailer
+  # mailer: ^6.0.1
 
 dev_dependencies:
   flutter_test:

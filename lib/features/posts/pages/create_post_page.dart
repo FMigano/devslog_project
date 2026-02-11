@@ -9,6 +9,8 @@ import '../../../core/constants/app_constants.dart';
 import '../../../shared/services/auth_service.dart';
 import '../../../shared/services/firestore_service.dart';
 import '../../../shared/services/storage_service.dart';
+import '../../../shared/services/ai_summarizer_service.dart';
+import '../../../shared/services/duplicate_detection_service.dart'; // ← ADD THIS LINE
 import '../../../shared/models/post_model.dart';
 
 class CreatePostPage extends StatefulWidget {
@@ -32,6 +34,22 @@ class _CreatePostPageState extends State<CreatePostPage> with SingleTickerProvid
   String? _imageDataUrl;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+  final AiSummarizerService _aiService = AiSummarizerService();
+  bool _isGeneratingTags = false;
+  bool _aiAvailable = false;
+  bool _showEnhancements = false;
+  List<String> _contentSuggestions = [];
+  String _improvedTitle = '';
+  bool _isEnhancing = false;
+  
+  bool _showContentEnhancement = false;
+  bool _isEnhancingContent = false;
+  Map<String, dynamic>? _contentEnhancementResults;
+
+  final DuplicateDetectionService _duplicateService = DuplicateDetectionService();
+  List<Map<String, dynamic>> _similarPosts = [];
+  bool _showSimilarPosts = false;
+  bool _checkingDuplicates = false;
 
   @override
   void initState() {
@@ -45,6 +63,19 @@ class _CreatePostPageState extends State<CreatePostPage> with SingleTickerProvid
       curve: Curves.easeInOut,
     );
     _animationController.forward();
+    
+    // ⭐ ADD THIS LINE - You're missing this call!
+    _checkAiAvailability();
+  }
+
+  Future<void> _checkAiAvailability() async {
+    final available = await _aiService.isAvailable();
+    if (mounted) {
+      setState(() => _aiAvailable = available);
+      if (!available) {
+        print('💡 Tip: Start Ollama to enable AI features');
+      }
+    }
   }
 
   @override
@@ -107,6 +138,365 @@ class _CreatePostPageState extends State<CreatePostPage> with SingleTickerProvid
     );
   }
 
+  Future<void> _generateAiTags() async {
+    if (_titleController.text.isEmpty) {
+      Fluttertoast.showToast(
+        msg: '⚠️ Please enter a title first',
+        backgroundColor: AppTheme.warningColor,
+      );
+      return;
+    }
+
+    setState(() => _isGeneratingTags = true);
+
+    try {
+      final content = await _htmlController.getText();
+      
+      if (content.isEmpty || content == '<p></p>' || content == '<p><br></p>') {
+        Fluttertoast.showToast(
+          msg: '⚠️ Please add some content first',
+          backgroundColor: AppTheme.warningColor,
+        );
+        setState(() => _isGeneratingTags = false);
+        return;
+      }
+
+      Fluttertoast.showToast(
+        msg: '🤖 AI is analyzing your post...',
+        backgroundColor: Colors.purple,
+      );
+
+      final suggestions = await _aiService.generateTopicSuggestions(
+        _titleController.text,
+        content,
+      );
+
+      if (suggestions.isNotEmpty) {
+        setState(() {
+          // Add AI suggestions to existing tags
+          for (var tag in suggestions) {
+            if (!_selectedTags.contains(tag)) {
+              _selectedTags.add(tag);
+            }
+          }
+        });
+
+        Fluttertoast.showToast(
+          msg: '✨ Added ${suggestions.length} AI-suggested tags!',
+          backgroundColor: AppTheme.successColor,
+          toastLength: Toast.LENGTH_LONG,
+        );
+      } else {
+        Fluttertoast.showToast(
+          msg: '⚠️ Could not generate tags. Is Ollama running?',
+          backgroundColor: AppTheme.warningColor,
+        );
+      }
+    } catch (e) {
+      Fluttertoast.showToast(
+        msg: '❌ AI error: $e',
+        backgroundColor: AppTheme.errorColor,
+      );
+    } finally {
+      setState(() => _isGeneratingTags = false);
+    }
+  }
+
+  Future<void> _enhancePostWithAI() async {
+    if (_titleController.text.isEmpty) {
+      Fluttertoast.showToast(
+        msg: '⚠️ Please enter a title first',
+        backgroundColor: AppTheme.warningColor,
+      );
+      return;
+    }
+
+    setState(() => _isEnhancingContent = true);
+
+    try {
+      final content = await _htmlController.getText();
+      
+      if (content.isEmpty || content == '<p></p>') {
+        Fluttertoast.showToast(
+          msg: '⚠️ Please add some content first',
+          backgroundColor: AppTheme.warningColor,
+        );
+        setState(() => _isEnhancingContent = false);
+        return;
+      }
+
+      Fluttertoast.showToast(
+        msg: '🤖 AI is analyzing your post...',
+        backgroundColor: Colors.purple,
+      );
+
+      final enhancement = await _aiService.enhancePostContent(
+        _titleController.text,
+        content,
+      );
+
+      if (enhancement != null) {
+        setState(() {
+          _contentEnhancementResults = enhancement;
+          _showContentEnhancement = true;
+        });
+
+        Fluttertoast.showToast(
+          msg: '✨ Enhancement suggestions ready!',
+          backgroundColor: AppTheme.successColor,
+        );
+      }
+    } catch (e) {
+      Fluttertoast.showToast(
+        msg: '❌ Enhancement error: $e',
+        backgroundColor: AppTheme.errorColor,
+      );
+    } finally {
+      setState(() => _isEnhancingContent = false);
+    }
+  }
+
+  Future<void> _checkForDuplicates() async {
+    if (_titleController.text.isEmpty) {
+      Fluttertoast.showToast(
+        msg: '⚠️ Please enter a title first',
+        backgroundColor: AppTheme.warningColor,
+      );
+      return;
+    }
+
+    setState(() => _checkingDuplicates = true);
+
+    try {
+      final content = await _htmlController.getText();
+      
+      if (content.isEmpty || content == '<p></p>') {
+        Fluttertoast.showToast(
+          msg: '⚠️ Please add some content first',
+          backgroundColor: AppTheme.warningColor,
+        );
+        setState(() => _checkingDuplicates = false);
+        return;
+      }
+
+      Fluttertoast.showToast(
+        msg: '🔍 Checking for similar posts...',
+        backgroundColor: Colors.blue,
+      );
+
+      final similar = await _duplicateService.findSimilarPosts(
+        title: _titleController.text,
+        content: content,
+        tags: _selectedTags,
+      );
+
+      if (mounted) {
+        setState(() {
+          _similarPosts = similar;
+          _showSimilarPosts = similar.isNotEmpty;
+        });
+
+        if (similar.isNotEmpty) {
+          Fluttertoast.showToast(
+            msg: '⚠️ Found ${similar.length} similar post(s)',
+            backgroundColor: AppTheme.warningColor,
+            toastLength: Toast.LENGTH_LONG,
+          );
+        } else {
+          Fluttertoast.showToast(
+            msg: '✅ No duplicates found',
+            backgroundColor: AppTheme.successColor,
+          );
+        }
+      }
+    } catch (e) {
+      print('Error checking duplicates: $e');
+      Fluttertoast.showToast(
+        msg: '❌ Error checking duplicates',
+        backgroundColor: AppTheme.errorColor,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _checkingDuplicates = false);
+      }
+    }
+  }
+
+
+  Widget _buildContentEnhancementPanel() {
+    final improvedTitle = _contentEnhancementResults?['improvedTitle'] ?? '';
+    final suggestions = List<String>.from(_contentEnhancementResults?['suggestions'] ?? []);
+    final readabilityScore = _contentEnhancementResults?['readabilityScore'] ?? 'Good';
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        // ✅ FIXED: Dark background with gradient
+        gradient: LinearGradient(
+          colors: [
+            AppTheme.darkSurface,
+            AppTheme.darkSurfaceVariant,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.blue.shade400, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.withValues(alpha: 0.2),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  // ✅ FIXED: Brighter icon color
+                  Icon(Icons.auto_fix_high, color: Colors.blue.shade300, size: 28),
+                  const SizedBox(width: 12),
+                  Text(
+                    'AI Enhancement Suggestions',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white, // ✅ FIXED: White text
+                    ),
+                  ),
+                ],
+              ),
+              IconButton(
+                onPressed: () => setState(() => _showContentEnhancement = false),
+                icon: Icon(Icons.close, color: Colors.white70), // ✅ FIXED: Visible close button
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+        
+          // Improved Title Suggestion
+          if (improvedTitle.isNotEmpty && improvedTitle != _titleController.text) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                // ✅ FIXED: Dark green background
+                color: Colors.green.shade900.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.green.shade400, width: 2),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.title, color: Colors.green.shade300), // ✅ FIXED
+                      SizedBox(width: 8),
+                      Text(
+                        'Improved Title:', 
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white, // ✅ FIXED
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    improvedTitle, 
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.white, // ✅ FIXED: White text
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _titleController.text = improvedTitle;
+                      });
+                      Fluttertoast.showToast(msg: '✨ Title updated!');
+                    },
+                    icon: Icon(Icons.check),
+                    label: Text('Use This Title'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green.shade600, // ✅ FIXED: Darker green
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        
+          // Content Suggestions
+          if (suggestions.isNotEmpty) ...[
+            Text(
+              'Content Improvements:',
+              style: TextStyle(
+                fontSize: 16, 
+                fontWeight: FontWeight.bold,
+                color: Colors.white, // ✅ FIXED: White text
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...suggestions.map((suggestion) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.lightbulb, color: Colors.blue.shade300, size: 20), // ✅ FIXED
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      suggestion, 
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white70, // ✅ FIXED: Light white text
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )),
+          ],
+        
+          const SizedBox(height: 20),
+          Container(
+            padding: EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade900.withOpacity(0.3), // ✅ FIXED: Dark blue background
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blue.shade400.withOpacity(0.5)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.blue.shade300, size: 20), // ✅ FIXED
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'These are suggestions to make your post more engaging and clearer!',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white70, // ✅ FIXED: Light white text
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -147,6 +537,7 @@ class _CreatePostPageState extends State<CreatePostPage> with SingleTickerProvid
           ],
         ),
         actions: [
+          // Publish button
           Container(
             margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
             child: ElevatedButton.icon(
@@ -179,255 +570,353 @@ class _CreatePostPageState extends State<CreatePostPage> with SingleTickerProvid
               ),
             ),
           ),
-        ],
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              AppTheme.darkBackground,
-              AppTheme.darkSurface.withOpacity(0.3),
-            ],
-          ),
-        ),
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 900),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Header Section
-                      _buildSectionHeader(
-                        icon: Icons.article_outlined,
-                        title: 'Post Details',
+          _buildAiTagSuggestions(),
+          // Check Duplicates button
+          if (_aiAvailable)
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              child: Tooltip(
+                message: 'Check for duplicate posts',
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: !_checkingDuplicates ? _checkForDuplicates : null,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [AppTheme.darkPrimary, AppTheme.darkPrimary.withOpacity(0.6)],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Title, Category, and Tags Card
-                      _buildGlassCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Title Field with fancy styling
-                            Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    AppTheme.darkPrimary.withOpacity(0.1),
-                                    AppTheme.darkPrimary.withOpacity(0.05),
-                                  ],
-                                ),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: TextFormField(
-                                controller: _titleController,
-                                style: TextStyle(
-                                  color: AppTheme.darkTextPrimary,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                                decoration: InputDecoration(
-                                  labelText: '✨ Title',
-                                  labelStyle: TextStyle(
-                                    color: AppTheme.darkPrimary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  hintText: 'What\'s on your mind?',
-                                  hintStyle: TextStyle(
-                                    color: AppTheme.darkTextSecondary.withOpacity(0.5),
-                                  ),
-                                  prefixIcon: Icon(Icons.title, color: AppTheme.darkPrimary),
-                                  border: InputBorder.none,
-                                  contentPadding: const EdgeInsets.all(20),
-                                ),
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'Please enter a title';
-                                  }
-                                  if (value.length < 10) {
-                                    return 'Title must be at least 10 characters';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 24),
-
-                            // Category Dropdown with gradient
-                            Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    AppTheme.darkPrimary.withOpacity(0.1),
-                                    AppTheme.darkPrimary.withOpacity(0.05),
-                                  ],
-                                ),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: DropdownButtonFormField<String>(
-                                initialValue: _selectedCategory,
-                                decoration: InputDecoration(
-                                  labelText: '📂 Category',
-                                  labelStyle: TextStyle(
-                                    color: AppTheme.darkPrimary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  prefixIcon: Icon(Icons.category, color: AppTheme.darkPrimary),
-                                  border: InputBorder.none,
-                                  contentPadding: const EdgeInsets.all(20),
-                                ),
-                                dropdownColor: AppTheme.darkSurfaceVariant,
-                                style: TextStyle(
-                                  color: AppTheme.darkTextPrimary,
-                                  fontSize: 16,
-                                ),
-                                items: AppConstants.postCategories.map((category) {
-                                  return DropdownMenuItem(
-                                    value: category,
-                                    child: Text(category),
-                                  );
-                                }).toList(),
-                                onChanged: (value) {
-                                  setState(() {
-                                    _selectedCategory = value!;
-                                    _selectedTags.clear();
-                                  });
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 24),
-
-                            // Tags Section
-                            Row(
-                              children: [
-                                Icon(Icons.label, color: AppTheme.darkPrimary, size: 20),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Tags (Select at least one)',
-                                  style: TextStyle(
-                                    color: AppTheme.darkPrimary,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Wrap(
-                              spacing: 10,
-                              runSpacing: 10,
-                              children: AppConstants.getTagsForCategory(_selectedCategory).map((tag) {
-                                final isSelected = _selectedTags.contains(tag);
-                                return AnimatedContainer(
-                                  duration: const Duration(milliseconds: 300),
-                                  child: Material(
-                                    color: Colors.transparent,
-                                    child: InkWell(
-                                      onTap: () {
-                                        setState(() {
-                                          if (isSelected) {
-                                            _selectedTags.remove(tag);
-                                          } else {
-                                            _selectedTags.add(tag);
-                                          }
-                                        });
-                                      },
-                                      borderRadius: BorderRadius.circular(20),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                        decoration: BoxDecoration(
-                                          gradient: isSelected
-                                              ? LinearGradient(
-                                                  colors: [
-                                                    AppTheme.darkPrimary,
-                                                    AppTheme.darkPrimary.withOpacity(0.7),
-                                                  ],
-                                                )
-                                              : null,
-                                          color: isSelected ? null : AppTheme.darkSurfaceVariant,
-                                          borderRadius: BorderRadius.circular(20),
-                                          border: Border.all(
-                                            color: isSelected ? AppTheme.darkPrimary : AppTheme.darkDivider,
-                                            width: 2,
-                                          ),
-                                          boxShadow: isSelected
-                                              ? [
-                                                  BoxShadow(
-                                                    color: AppTheme.darkPrimary.withOpacity(0.3),
-                                                    blurRadius: 8,
-                                                    offset: const Offset(0, 4),
-                                                  ),
-                                                ]
-                                              : null,
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            if (isSelected)
-                                              const Icon(
-                                                Icons.check_circle,
-                                                color: Colors.white,
-                                                size: 16,
-                                              ),
-                                            if (isSelected) const SizedBox(width: 6),
-                                            Text(
-                                              tag,
-                                              style: TextStyle(
-                                                color: isSelected ? Colors.white : AppTheme.darkTextSecondary,
-                                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                                              ),
-                                            ),
-                                          ],
-                                          ),
-                                        ),
-                                      ),
-                                    )
-                                    );
-                                }).toList(),
-                            ),
+                          colors: [
+                            Colors.orange.withOpacity(0.8),
+                            Colors.orange.withOpacity(0.6),
                           ],
                         ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.orange, width: 2),
                       ),
-                      const SizedBox(height: 32),
-
-                      // Image Attachment Section
-                      _buildSectionHeader(
-                        icon: Icons.image_outlined,
-                        title: 'Attach Image',
-                        gradient: LinearGradient(
-                          colors: [Colors.purple, Colors.purple.withOpacity(0.6)],
-                        ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _checkingDuplicates
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                            : const Icon(
+                                Icons.content_copy,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _checkingDuplicates ? 'Checking...' : 'Check Duplicates',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      _buildImageAttachmentCard(),
-                      const SizedBox(height: 32),
-
-                      // Content Editor Section
-                      _buildSectionHeader(
-                        icon: Icons.edit_note_outlined,
-                        title: 'Content',
-                        gradient: LinearGradient(
-                          colors: [Colors.teal, Colors.teal.withOpacity(0.6)],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildContentEditor(),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
+          // Review Code button
+          if (_aiAvailable)
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              child: Tooltip(
+                message: 'Review code for issues',
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: !_isEnhancingContent ? _enhancePostWithAI : null,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.blue.withOpacity(0.8),
+                            Colors.blue.withOpacity(0.6),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.blue, width: 2),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _isEnhancingContent
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                            : const Icon(
+                                Icons.auto_fix_high,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _isEnhancingContent ? 'Enhancing...' : 'Enhance Post',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+      body: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            children: [
+              // Header Section
+              _buildSectionHeader(
+                icon: Icons.article_outlined,
+                title: 'Post Details',
+                gradient: LinearGradient(
+                  colors: [AppTheme.darkPrimary, AppTheme.darkPrimary.withOpacity(0.6)],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Title, Category, and Tags Card
+              _buildGlassCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Title Field with fancy styling
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            AppTheme.darkPrimary.withOpacity(0.1),
+                            AppTheme.darkPrimary.withOpacity(0.05),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: TextFormField(
+                        controller: _titleController,
+                        style: TextStyle(
+                          color: AppTheme.darkTextPrimary,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: '✨ Title',
+                          labelStyle: TextStyle(
+                            color: AppTheme.darkPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          hintText: 'What\'s on your mind?',
+                          hintStyle: TextStyle(
+                            color: AppTheme.darkTextSecondary.withOpacity(0.5),
+                          ),
+                          prefixIcon: Icon(Icons.title, color: AppTheme.darkPrimary),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.all(20),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter a title';
+                          }
+                          if (value.length < 10) {
+                            return 'Title must be at least 10 characters';
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Category Dropdown with gradient
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            AppTheme.darkPrimary.withOpacity(0.1),
+                            AppTheme.darkPrimary.withOpacity(0.05),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _selectedCategory,
+                        decoration: InputDecoration(
+                          labelText: '📂 Category',
+                          labelStyle: TextStyle(
+                            color: AppTheme.darkPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          prefixIcon: Icon(Icons.category, color: AppTheme.darkPrimary),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.all(20),
+                        ),
+                        dropdownColor: AppTheme.darkSurfaceVariant,
+                        style: TextStyle(
+                          color: AppTheme.darkTextPrimary,
+                          fontSize: 16,
+                        ),
+                        items: AppConstants.postCategories.map((category) {
+                          return DropdownMenuItem(
+                            value: category,
+                            child: Text(category),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedCategory = value!;
+                            _selectedTags.clear();
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Tags Section
+                    Row(
+                      children: [
+                        Icon(Icons.label, color: AppTheme.darkPrimary, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Tags (Select at least one)',
+                          style: TextStyle(
+                            color: AppTheme.darkPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: AppConstants.getTagsForCategory(_selectedCategory).map((tag) {
+                        final isSelected = _selectedTags.contains(tag);
+                        return AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () {
+                                setState(() {
+                                  if (isSelected) {
+                                    _selectedTags.remove(tag);
+                                  } else {
+                                    _selectedTags.add(tag);
+                                  }
+                                });
+                              },
+                              borderRadius: BorderRadius.circular(20),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                decoration: BoxDecoration(
+                                  gradient: isSelected
+                                      ? LinearGradient(
+                                          colors: [
+                                            AppTheme.darkPrimary,
+                                            AppTheme.darkPrimary.withOpacity(0.7),
+                                          ],
+                                        )
+                                      : null,
+                                  color: isSelected ? null : AppTheme.darkSurfaceVariant,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: isSelected ? AppTheme.darkPrimary : AppTheme.darkDivider,
+                                    width: 2,
+                                  ),
+                                  boxShadow: isSelected
+                                      ? [
+                                          BoxShadow(
+                                            color: AppTheme.darkPrimary.withOpacity(0.3),
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ]
+                                      : null,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (isSelected)
+                                      const Icon(
+                                        Icons.check_circle,
+                                        color: Colors.white,
+                                        size: 16,
+                                      ),
+                                    if (isSelected) const SizedBox(width: 6),
+                                    Text(
+                                      tag,
+                                      style: TextStyle(
+                                        color: isSelected ? Colors.white : AppTheme.darkTextSecondary,
+                                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                  ),
+                                ),
+                              ),
+                            )
+                            );
+                        }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 32),
+
+              // Image Attachment Section
+              _buildSectionHeader(
+                icon: Icons.image_outlined,
+                title: 'Attach Image',
+                gradient: LinearGradient(
+                  colors: [Colors.purple, Colors.purple.withOpacity(0.6)],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildImageAttachmentCard(),
+              const SizedBox(height: 32),
+
+              // Content Editor Section
+              _buildSectionHeader(
+                icon: Icons.edit_note_outlined,
+                title: 'Content',
+                gradient: LinearGradient(
+                  colors: [Colors.teal, Colors.teal.withOpacity(0.6)],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildContentEditor(),
+
+              // ⭐ ADD THIS - Show code review results panel
+              if (_showContentEnhancement && _contentEnhancementResults != null) ...[
+                const SizedBox(height: 32),
+                _buildContentEnhancementPanel(),
+              ],
+            ],
           ),
         ),
       ),
@@ -658,6 +1147,73 @@ class _CreatePostPageState extends State<CreatePostPage> with SingleTickerProvid
               ],
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAiTagSuggestions() {
+    return Container(
+      margin: const EdgeInsets.only(right: 8),
+      child: Tooltip(
+        message: _aiAvailable 
+            ? 'Generate tags using AI' 
+            : 'AI offline. Start Ollama to enable.',
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _aiAvailable && !_isGeneratingTags ? _generateAiTags : null,
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                gradient: _aiAvailable
+                    ? LinearGradient(
+                        colors: [
+                          Colors.purple.withOpacity(0.8),
+                          Colors.purple.withOpacity(0.6),
+                        ],
+                      )
+                    : null,
+                color: _aiAvailable ? null : Colors.grey.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _aiAvailable ? Colors.purple : Colors.grey,
+                  width: 2,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _isGeneratingTags
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                    : Icon(
+                        _aiAvailable ? Icons.auto_awesome : Icons.cloud_off,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _isGeneratingTags 
+                        ? 'Generating...' 
+                        : (_aiAvailable ? 'AI Tags' : 'AI Offline'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -40,6 +40,24 @@ class _LoginPageState extends State<LoginPage> {
         _passwordController.text,
       );
       
+      // Check if email is verified
+      final user = authService.currentUser;
+      
+      if (user != null && !user.emailVerified) {
+        // Email not verified - sign out and redirect to verification page
+        await authService.signOut();
+        
+        if (mounted) {
+          Fluttertoast.showToast(
+            msg: '⚠️ Please verify your email before logging in',
+            backgroundColor: AppTheme.warningColor,
+            toastLength: Toast.LENGTH_LONG,
+          );
+          
+        }
+        return;
+      }
+      
       if (mounted) {
         Fluttertoast.showToast(
           msg: '✅ Welcome back!',
