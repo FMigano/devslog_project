@@ -1,112 +1,132 @@
-# DevsLog - Developer Forum Web App
+# Re: Devs
 
-A modern forum web application built with Flutter and Firebase where developers can share knowledge, collaborate on code, and build a community.
+**Re: Devs** is a Flutter-powered developer community platform where programmers share knowledge, discuss technical topics, publish tutorials, ask questions, and collaborate.
 
 ## Features
 
-### User Features
-- 🔐 Account management with email verification
-- ✍️ Create, edit, and delete posts with rich text editor
-- 👍 Vote system (upvotes/downvotes) for posts
-- 🔖 Bookmark favorite posts
-- 💬 Comment on posts
-- 📚 Reading history tracking
-- 👤 Customizable user profiles
-- 🔑 Password reset functionality
+- Email/password authentication, email verification, password reset, and profile management
+- Create, edit, delete, and search developer posts
+- Rich-text posts with image uploads, categories, and tags
+- Upvotes, downvotes, bookmarks, views, and reading history
+- Comments, nested replies, and real-time post updates
+- User profiles with posts, saved posts, activity logs, and reputation
+- Notifications for community activity
+- AI-assisted tag generation, post enhancement, duplicate detection, and comment suggestions
+- Admin dashboard for post approval, moderation, user management, roles, bans, pinning, and featured posts
+- Analytics for categories, activity, user growth, and engagement
+- Light and dark themes
 
-### Admin Features
-- 📊 Admin dashboard with statistics
-- 👥 User management (CRUD operations)
-- 🛡️ Post moderation and management
-- 🔔 Admin notifications system
-- 📈 Monthly post analytics with charts
+## Technology stack
 
-## Setup Instructions
+- **Flutter/Dart** for the application
+- **Firebase Authentication** for user accounts
+- **Cloud Firestore** for application data
+- **Firebase Storage** for post and profile images
+- **Provider** for state management
+- **fl_chart** for admin analytics
+- **Firebase Hosting** for web deployment
+- Optional local **Ollama** integration for AI-assisted features
 
-### Prerequisites
-- Flutter SDK (3.9.0 or higher)
-- Firebase account
-- Node.js (for Firebase tools)
+## Requirements
 
-### Firebase Setup
+- Flutter SDK 3.9.0 or later
+- Dart SDK compatible with `^3.9.0`
+- A Firebase project with Authentication, Firestore, Storage, and Hosting enabled
+- Node.js and the Firebase CLI for deployment
+- Optional: Ollama for local AI features
 
-1. **Create a Firebase Project**
-   - Go to [Firebase Console](https://console.firebase.google.com/)
-   - Click "Add Project"
-   - Follow the setup wizard
+## Getting started
 
-2. **Enable Authentication**
-   - In Firebase Console, go to Authentication
-   - Enable Email/Password sign-in method
+1. Install dependencies:
 
-3. **Create Firestore Database**
-   - Go to Firestore Database
-   - Click "Create Database"
-   - Start in production mode
-   - Choose a location
-
-4. **Setup Firebase for Web**
-   - In Project Settings, add a Web app
-   - Copy the Firebase configuration
-   - Create `lib/core/config/firebase_config.dart` with your config
-
-5. **Firestore Security Rules**
-   ```
-   rules_version = '2';
-   service cloud.firestore {
-     match /databases/{database}/documents {
-       match /users/{userId} {
-         allow read: if request.auth != null;
-         allow write: if request.auth.uid == userId || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
-       }
-       match /posts/{postId} {
-         allow read: if true;
-         allow create: if request.auth != null;
-         allow update, delete: if request.auth.uid == resource.data.authorId || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
-       }
-       match /comments/{commentId} {
-         allow read: if true;
-         allow create: if request.auth != null;
-         allow update, delete: if request.auth.uid == resource.data.authorId;
-       }
-     }
-   }
+   ```bash
+   flutter pub get
    ```
 
-### Installation
+2. Configure Firebase in `lib/core/config/firebase_config.dart` using your Firebase web app settings.
 
-1. Clone the repository
-2. Run `flutter pub get`
-3. Configure Firebase (see above)
-4. Run `flutter run -d chrome` for web
+3. Enable Email/Password authentication, Cloud Firestore, and Firebase Storage in the Firebase Console.
 
-## Project Structure
+4. Review `firestore.rules` and `firebase.json` for your deployment environment.
 
+5. Run the application:
+
+   ```bash
+   flutter run -d chrome
+   ```
+
+   You can also use any configured Flutter device:
+
+   ```bash
+   flutter devices
+   flutter run
+   ```
+
+## Firebase deployment
+
+```bash
+flutter build web
+firebase login
+firebase deploy --only hosting
 ```
+
+Firebase Hosting serves `build/web` and rewrites application routes to `index.html`.
+
+## Firestore collections
+
+The application uses these primary collections:
+
+- `users`
+- `posts`
+- `comments` and nested `replies`
+- `votes`
+- `bookmarks`
+- `notifications`
+- `activity_logs`
+
+The repository includes Firestore rules and indexes, Firebase Hosting configuration, and the project alias in `.firebaserc`.
+
+## Project structure
+
+```text
 lib/
 ├── core/
-│   ├── config/
-│   ├── theme/
-│   └── constants/
+│   ├── config/       # Firebase, Ollama, and app configuration
+│   ├── constants/    # App name, categories, tags, roles, and limits
+│   └── theme/        # Light and dark themes
 ├── features/
-│   ├── auth/
-│   ├── posts/
-│   ├── profile/
-│   └── admin/
+│   ├── admin/        # Moderation, user management, and analytics
+│   ├── auth/         # Login, registration, verification, and reset flows
+│   ├── home/         # Authenticated home experience
+│   ├── landing/      # Public landing page
+│   ├── notifications/ # User notifications
+│   ├── posts/        # Post creation, details, comments, votes, and bookmarks
+│   ├── profile/      # Profiles, saved posts, and activity logs
+│   ├── search/       # Post search and suggestions
+│   └── settings/     # Application settings
 ├── shared/
-│   ├── models/
-│   ├── widgets/
-│   └── services/
-└── main.dart
+│   ├── models/       # Shared Firestore models
+│   ├── providers/    # Shared application state
+│   ├── services/     # Auth, Firestore, notification, and AI services
+│   └── widgets/      # Reusable UI components
+└── main.dart         # Firebase initialization and app bootstrap
 ```
 
-## Technology Stack
+## Development commands
 
-- **Frontend**: Flutter Web
-- **Backend**: Firebase (Firestore, Auth, Storage)
-- **State Management**: Provider
-- **UI**: Custom Material Design with Google Fonts
+```bash
+flutter analyze
+flutter test
+flutter build web
+```
+
+## Security notes
+
+- Do not commit private credentials or production secrets.
+- Replace sample Firebase configuration before deploying your own environment.
+- Review and customize Firestore and Storage rules for production.
+- Replace development-only administrator credentials and disable automatic admin creation before production use.
 
 ## License
 
-This project is licensed under the MIT License.
+No license file is currently included in this repository.
